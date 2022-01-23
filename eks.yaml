@@ -1,0 +1,392 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploys a Solodev Optimized EKS cluster into an existing VPC
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Network configuration
+        Parameters:
+          - VPCID
+          - PrivateSubnet1ID
+          - PrivateSubnet2ID
+          - PrivateSubnet3ID
+          - PublicSubnet1ID
+          - PublicSubnet2ID
+          - PublicSubnet3ID
+      - Label:
+          default: Amazon EC2 configuration
+        Parameters:
+          - KeyPairName
+      - Label:
+          default: Amazon EKS configuration
+        Parameters:
+          - NodeInstanceType
+          - NumberOfNodes
+          - NodeGroupName
+          - NodeVolumeSize
+          - ManagedNodeGroup
+          - KubernetesVersion
+    ParameterLabels:
+      KeyPairName:
+        default: SSH key name
+      NodeInstanceType:
+        default: Nodes instance type
+      NumberOfNodes:
+        default: Number of nodes
+      NodeGroupName:
+        default: Node group name
+      NodeVolumeSize:
+        default: Node volume size
+      ManagedNodeGroup:
+        default: Managed Node Group
+      PublicSubnet1ID:
+        default: Public subnet 1 ID
+      PublicSubnet2ID:
+        default: Public subnet 2 ID
+      PublicSubnet3ID:
+        default: Public subnet 3 ID
+      PrivateSubnet1ID:
+        default: Private subnet 1 ID
+      PrivateSubnet2ID:
+        default: Private subnet 2 ID
+      PrivateSubnet3ID:
+        default: Private subnet 3 ID
+      VPCID:
+        default: VPC ID
+Parameters:
+  KeyPairName:
+    Description: Name of an existing key pair, which allows you
+      to securely connect to your instance after it launches.
+    Type: String
+    Default: ""
+  NodeInstanceType:
+    Default: t3.medium
+    AllowedValues:
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+      - m5.large
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.12xlarge
+      - m5.24xlarge
+      - c5.large
+      - c5.xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      - c5.9xlarge
+      - c5.18xlarge
+      - i3.large
+      - i3.xlarge
+      - i3.2xlarge
+      - i3.4xlarge
+      - i3.8xlarge
+      - i3.16xlarge
+      - x1.16xlarge
+      - x1.32xlarge
+      - p3.2xlarge
+      - p3.8xlarge
+      - p3.16xlarge
+      - r5.large
+      - r5.xlarge
+      - r5.2xlarge
+      - r5.4xlarge
+      - r5.12xlarge
+      - r5.24xlarge
+      - r5d.large
+      - r5d.xlarge
+      - r5d.2xlarge
+      - r5d.4xlarge
+      - r5d.12xlarge
+      - r5d.24xlarge
+      - z1d.large
+      - z1d.xlarge
+      - z1d.2xlarge
+      - z1d.3xlarge
+      - z1d.6xlarge
+      - z1d.12xlarge
+    ConstraintDescription: Must be a valid EC2 instance type
+    Description: The type of EC2 instance for the node instances.
+    Type: String
+  NumberOfNodes:
+    Default: 3
+    Description: The number of Amazon EKS node instances. The default is one for each of the three Availability Zones.
+    Type: Number
+  MaxNumberOfNodes:
+    Default: 3
+    Description: Maximum number of Amazon EKS node instances. The default is three.
+    Type: Number
+  NodeGroupName:
+    Default: Default
+    Description: The name for EKS node group.
+    Type: String
+  NodeInstanceFamily:
+    AllowedValues: ['Standard', 'ARM', 'GPU']
+    Type: String
+    Description: Choose the instance family to match the value of "Node instance type."
+    Default: Standard
+  NodeGroupType:
+    Type: String
+    AllowedValues: [ Managed, Unmanaged ]
+    Default: Managed
+    Description: Choose "Unmanaged" to create an Auto Scaling group without using the EKS-managed node groups feature.
+  NodeGroupOS:
+    AllowedValues:
+      - 'Amazon Linux 2'
+      - 'Bottlerocket'
+      - 'Windows'
+    Default: 'Amazon Linux 2'
+    Description: Operating system to use for node instances. Note that if you choose "Windows," an additional
+      Amazon Linux node group is created.
+    Type: String
+  NodeVolumeSize:
+    Default: 20
+    Description: "The size for the node's root EBS volumes."
+    Type: String
+  ManagedNodeGroup:
+    AllowedValues: [ "yes", "no" ]
+    Default: "no"
+    Description: Choose if you want to use a managed node group. If you select "yes", you must select Kubernetes version 1.14 or higher.
+    Type: String
+  VPCID:
+    Type: "AWS::EC2::VPC::Id"
+    Description: The ID of your existing VPC (e.g., vpc-0343606e)
+  PublicSubnet1ID:
+    Type: String
+    Description: The ID of the public subnet in Availability Zone 1 in your existing VPC (e.g., subnet-a0246dcd)
+    Default: ""
+  PublicSubnet2ID:
+    Type: String
+    Description: The ID of the public subnet in Availability Zone 2 in your existing VPC (e.g., subnet-b1236eea)
+    Default: ""
+  PublicSubnet3ID:
+    Type: String
+    Description: The ID of the public subnet in Availability Zone 3 in your existing VPC (e.g., subnet-c3456aba)
+    Default: ""
+  PrivateSubnet1ID:
+    Type: "AWS::EC2::Subnet::Id"
+    Description: The ID of the private subnet in Availability Zone 1 in your existing VPC (e.g., subnet-fe9a8b32)
+  PrivateSubnet2ID:
+    Type: String
+    Description: The ID of the private subnet in Availability Zone 2 in your existing VPC (e.g., subnet-be8b01ea)
+    Default: ""
+  PrivateSubnet3ID:
+    Type: String
+    Description: The ID of the private subnet in Availability Zone 3 in your existing VPC (e.g., subnet-abd39039)
+    Default: ""
+  ProvisionWeave:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Weave CNI"
+  ProvisionNginxIngress:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Inginx Proxy"
+  ProvisionExternalDNS:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable External DNS with Route 53"
+  ProvisionCMS:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Disabled"
+    Description: "Choose Enabled to enable Solodev CMS"
+  DefaultCMS:
+    Type: String
+    AllowedValues: [ "", "solodev-cms", "wordpress" ]
+    Description: "Choose preferred CMS"
+    Default: "wordpress"
+  AdminEmail:
+    Type: String
+    Default: ""
+    Description: "What is your email address?"
+  WebsiteUrl:
+    Type: String
+    Default: ""
+    Description: "Website address"
+  CustomAmiId:
+    Type: String
+    Default: ""
+    Description: "(Optional) If an AMI ID is specified, it is used instead of the AMI from your OS/Region."
+
+Conditions:
+  EnablePublicSubnets: !Not [!Equals [!Ref PublicSubnet1ID, ""]]
+  3AZDeployment: !Not [!Equals [!Ref PrivateSubnet3ID, ""]]
+  2AZDeployment: !Or
+    - !Not [!Equals [!Ref PrivateSubnet2ID, ""]]
+    - !Not [!Equals [!Ref PrivateSubnet3ID, ""]]
+  CustomAmi: !Equals [!Ref CustomAmiId, 'Enabled']
+  EnableWeave: !Equals [!Ref 'ProvisionWeave', 'Enabled']
+  EnableNginxIngress: !Equals [!Ref 'ProvisionNginxIngress', 'Enabled']
+  EnableExternalDNS: !Equals [!Ref 'ProvisionExternalDNS', 'Enabled']
+  EnableCMS: !Equals [!Ref 'ProvisionCMS', 'Enabled']
+
+Resources:
+
+  #============================================================================#
+  # Control plane
+  #============================================================================#
+
+  ControlPlane:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref AWS::StackName
+      Version: "1.21"
+      RoleArn: !GetAtt ControlPlaneRole.Arn
+      ResourcesVpcConfig:
+        SecurityGroupIds: 
+          - !Ref ControlPlaneSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1ID
+          - !Ref PrivateSubnet2ID
+        EndpointPublicAccess: false
+        EndpointPrivateAccess: true
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ControlPlane"
+
+  ControlPlaneRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+            Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+
+  #============================================================================#
+  # Control plane security group
+  #============================================================================#
+
+  ControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the elastic network interfaces between the control plane and the worker nodes
+      VpcId: !Ref VPCID
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ControlPlaneSecurityGroup"
+
+  ControlPlaneIngressFromNodeGroupHttps:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow incoming HTTPS traffic (TCP/443) from worker nodes (for API server)
+      GroupId: !Ref ControlPlaneSecurityGroup
+      SourceSecurityGroupId: !Ref NodeGroupSecurityGroup
+      IpProtocol: tcp
+      ToPort: 443
+      FromPort: 443
+
+  ControlPlaneEgressToNodeGroupKubelet:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      Description: Allow outgoing kubelet traffic (TCP/10250) to worker nodes
+      GroupId: !Ref ControlPlaneSecurityGroup
+      DestinationSecurityGroupId: !Ref NodeGroupSecurityGroup
+      IpProtocol: tcp
+      FromPort: 10250
+      ToPort: 10250
+
+  ControlPlaneEgressToNodeGroupHttps:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      Description: Allow outgoing HTTPS traffic (TCP/442) to worker nodes (for pods running extension API servers)
+      GroupId: !Ref ControlPlaneSecurityGroup
+      DestinationSecurityGroupId: !Ref NodeGroupSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+
+  #============================================================================#
+  # Worker nodes security group
+  # Note: default egress rule (allow all traffic to all destinations) applies
+  #============================================================================#
+
+  NodeGroupSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for all the worker nodes
+      VpcId: !Ref VPCID
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NodeGroupSecurityGroup"
+        - Key: !Sub "kubernetes.io/cluster/${ControlPlane}"
+          Value: "owned"
+
+  NodeGroupIngressFromNodeGroup:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow all incoming traffic from other worker nodes
+      GroupId: !Ref NodeGroupSecurityGroup
+      SourceSecurityGroupId: !Ref NodeGroupSecurityGroup
+      IpProtocol: "-1"
+
+  NodeGroupIngressFromControlPlaneKubelet:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow incoming kubelet traffic (TCP/10250) from control plane 
+      GroupId: !Ref NodeGroupSecurityGroup
+      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+      IpProtocol: tcp
+      FromPort: 10250
+      ToPort: 10250
+
+  NodeGroupIngressFromControlPlaneHttps:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow incoming HTTPS traffic (TCP/443) from control plane (for pods running extension API servers)
+      GroupId: !Ref NodeGroupSecurityGroup
+      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+  
+  #============================================================================#
+  # Node Group Stack
+  #============================================================================#
+
+  NodeGroupStack:
+    Type: "AWS::CloudFormation::Stack"
+    Metadata:
+      cfn-lint: { config: { ignore_checks: [ W9901 ] } }
+      DependsOn:
+        - !Ref ControlPlane
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/nodegroup.yaml
+      Parameters:
+        KeyPairName: !Ref KeyPairName
+        NodeGroupOS: !Ref NodeGroupOS
+        Subnet1ID: !Ref PrivateSubnet1ID
+        Subnet2ID: !If [2AZDeployment, !Ref PrivateSubnet2ID, !Ref "AWS::NoValue" ]
+        Subnet3ID: !If [3AZDeployment, !Ref PrivateSubnet3ID, !Ref "AWS::NoValue" ]
+        NodeInstanceType: !Ref NodeInstanceType
+        NumberOfNodes: !Ref NumberOfNodes
+        MaxNumberOfNodes: !Ref MaxNumberOfNodes
+        NodeGroupName: !Ref NodeGroupName
+        NodeVolumeSize: !Ref NodeVolumeSize
+        CustomAmiId: !Ref CustomAmiId
+        EKSClusterName: !Ref AWS::StackName
+        NodeInstanceFamily: !Ref NodeInstanceFamily
+        NodeGroupType: !Ref NodeGroupType
+        NodeSecurityGroupId: !Ref NodeGroupSecurityGroup
+        BootstrapArguments: !If [EnableWeave, "--enable-weave 'true'", ""]
+

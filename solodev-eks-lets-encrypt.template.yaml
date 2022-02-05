@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Deploys the Lets Encrypt helm chart into an existing kubernetes cluster"
+
+Metadata: 
+
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "Config"
+        Parameters: 
+        Parameters: 
+          - ClusterName
+          - CertManagerRepoUrl
+          - LetsEncryptRepoUrl
+          - AdminEmail
+
+Parameters:
+
+  ClusterName:
+    Type: String
+
+  CertManagerRepoUrl:
+    Type: String
+    Default: "https://charts.jetstack.io"
+
+  LetsEncryptRepoUrl:
+    Type: String
+    Default: "https://raw.githubusercontent.com/techcto/charts/master/"
+
+  AdminEmail:
+    Type: String
+
+Resources:
+
+  CertManager:
+    Type: "AWSQS::Kubernetes::Helm"
+    Properties:
+      ClusterID: !Ref ClusterName
+      Repository: !Ref CertManagerRepoUrl
+      Chart: jetstack/cert-manager
+      Version: '1.1.0'
+      Name: cert-manager
+      Namespace: cert-manager
+      ValueYaml: !Sub |
+        installCRDs: true
+        webhook:
+          securePort: 10251
+          hostNetwork: true
+
+  LetsEncrypt:
+    DependsOn: CertManager
+    Type: "AWSQS::Kubernetes::Helm"
+    Properties:
+      ClusterID: !Ref ClusterName
+      Repository: !Ref LetsEncryptRepoUrl
+      Chart: charts/lets-encrypt
+      Version: '1.3'
+      Name: lets-encrypt
+      Namespace: cert-manager
+      ValueYaml: !Sub |
+        ssl:
+          email: ${AdminEmail}
+

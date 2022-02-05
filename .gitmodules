@@ -1,0 +1,3 @@
+[submodule "submodules/amazon-eks-ami"]
+	path = submodules/amazon-eks-ami
+	url = https://github.com/techcto/amazon-eks-ami.git

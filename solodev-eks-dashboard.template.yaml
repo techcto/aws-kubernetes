@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Deploys the Kubernetes Dashboard into an existing kubernetes cluster (qs-1qde66ffn)"
+
+Metadata: 
+
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "Lambda Functions"
+        Parameters: 
+          - ClusterName
+          - WebStackArn
+
+Parameters:
+
+  WebStackArn:
+    Type: String
+
+  ClusterName:
+    Type: String
+
+Resources:
+
+  MetricsServer:
+    Type: "AWSQS::Kubernetes::Helm"
+    Version: '1.0'
+    Properties:
+      ClusterID: !Ref ClusterName
+      Namespace: metrics
+      Chart: stable/metrics-server
+      Name: metrics-server
+      ValueYaml: !Sub |
+        hostNetwork:
+          enabled: true
+
+  Dashboard:
+    DependsOn: MetricsServer
+    Type: "Custom::WebStack"
+    Version: '1.0'
+    Properties:
+      ServiceToken: !Ref WebStackArn
+      ClusterName: !Ref ClusterName
+      Dashboard:
+        Enable: "true"
+      Count: 0

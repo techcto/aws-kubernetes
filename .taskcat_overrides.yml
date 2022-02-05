@@ -1,0 +1,6 @@
+KeyPairName: docker1
+VPCID: "vpc-2f13cf54"
+PublicSubnet1ID: "subnet-812c73ae"
+PublicSubnet2ID: "subnet-ef11f6a5"
+PrivateSubnet1ID: "subnet-79297656"
+PrivateSubnet2ID: "subnet-6418ff2e"

@@ -1,0 +1,20 @@
+general:
+  auth:
+    default: default
+project:
+  name: solodev-kubernetes
+  owner: help@solodev.com
+  shorten_stack_name: true
+  regions:
+  - us-east-1
+  template: eks.yaml
+  parameters:
+    LambdaBucketName: $[taskcat_autobucket]
+    KeyPrefix: "quickstart-solodev-eks/"
+  lambda_source_path: functions/source
+  lambda_zip_path: functions/packages
+  build_submodules: true
+tests:
+  defaults:
+    parameters:
+      AvailabilityZones: $[taskcat_genaz_3]

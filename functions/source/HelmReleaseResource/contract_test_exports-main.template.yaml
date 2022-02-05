@@ -1,0 +1,6 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  EKSResources:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 'https://aws-quickstart.s3.us-east-1.amazonaws.com/quickstart-helm-resource-provider/contract_test_exports.template.yaml'

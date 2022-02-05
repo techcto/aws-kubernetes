@@ -1,3 +1,5 @@
-submodules
+functions/packages/*
+submodules/*
+bin/*
 eks.json
 .env

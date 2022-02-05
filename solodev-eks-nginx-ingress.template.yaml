@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Deploys the Nginx Ingress helm chart into an existing kubernetes cluster (qs-1qde66ffn)"
+
+Metadata: 
+
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "Lambda Function"
+        Parameters: 
+        Parameters: 
+          - ClusterName
+
+Parameters:
+
+  ClusterName:
+    Type: String
+
+Resources:
+
+  NginxIngress:
+    Type: "AWSQS::Kubernetes::Helm"
+    Version: '1.0'
+    Properties:
+      ClusterID: !Ref ClusterName
+      Namespace: nginx-ingress
+      Chart: stable/nginx-ingress
+      Name: nginx-ingress
+      ValueYaml: !Sub |
+        controller:
+          name: controller
+          service:
+            annotations:
+              service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+          publishService:
+            enabled: true
+          stats:
+            enabled: true
+          metrics:
+            enabled: true
+          hostNetwork: true
+          kind: DaemonSet
+

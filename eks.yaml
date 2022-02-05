@@ -1,6 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Deploys a Solodev Optimized EKS cluster into an existing VPC
 Metadata:
+  QSLint:
+    Exclusions: [W3002, W3001, W1010]
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
@@ -179,6 +181,40 @@ Parameters:
     Type: String
     Description: The ID of the private subnet in Availability Zone 3 in your existing VPC (e.g., subnet-abd39039)
     Default: ""
+  KubernetesVersion:
+    Type: String
+    Default: "1.21"
+  EKSPublicAccessCIDRs:
+    Type: List<String>
+    Default: 0.0.0.0/0
+  EKSPublicAccessEndpoint:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Disabled
+  EKSPrivateAccessEndpoint:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Enabled
+  EKSClusterLoggingTypes:
+    Type: List<String>
+    Default: ""
+  EKSEncryptSecrets:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Enabled
+  EKSEncryptSecretsKmsKeyArn:
+    Type: String
+    Default: ""
+  AdditionalEKSAdminUserArn:
+    Type: String
+    Default: ""
+  AdditionalEKSAdminRoleArn:
+    Type: String
+    Default: ""
+  IamOidcProvider:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
   ProvisionWeave:
     Type: String
     AllowedValues: [ "Enabled", "Disabled" ]
@@ -214,11 +250,27 @@ Parameters:
     Description: "Website address"
   CustomAmiId:
     Type: String
-    Default: ""
-    Description: "(Optional) If an AMI ID is specified, it is used instead of the AMI from your OS/Region."
+    Default: "ami-0d6c8b2a8562eba37"
+    Description: "(Optional) If an AMI ID is specified: https://docs.aws.amazon.com/eks/latest/userguide/retrieve-ami-id.html"
+  LambdaBucketName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    Default: solodev-kubernetes
+    Type: String
+  KeyPrefix:
+    AllowedPattern: ^[0-9a-zA-Z-/.]*$
+    Default: cloudformation/
+    Type: String
 
 Conditions:
   EnablePublicSubnets: !Not [!Equals [!Ref PublicSubnet1ID, ""]]
+  EnablePrivateEndpoint: !Equals [ !Ref EKSPrivateAccessEndpoint, "Enabled" ]
+  EnablePublicEndpoint: !Equals [ !Ref EKSPublicAccessEndpoint, "Enabled" ]
+  CreateKey: !And
+    - !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
+    - !Equals [ !Ref EKSEncryptSecrets, Enabled ]
+  EnableEncryption: !Equals [ !Ref EKSEncryptSecrets, Enabled ]
+  LoggingEnabled: !Not [ !Equals [ !Select [ 0, !Ref EKSClusterLoggingTypes ], "" ] ]
+  EnableIamOidcProvider: !Equals [!Ref 'IamOidcProvider', 'Enabled']
   3AZDeployment: !Not [!Equals [!Ref PrivateSubnet3ID, ""]]
   2AZDeployment: !Or
     - !Not [!Equals [!Ref PrivateSubnet2ID, ""]]
@@ -228,18 +280,48 @@ Conditions:
   EnableNginxIngress: !Equals [!Ref 'ProvisionNginxIngress', 'Enabled']
   EnableExternalDNS: !Equals [!Ref 'ProvisionExternalDNS', 'Enabled']
   EnableCMS: !Equals [!Ref 'ProvisionCMS', 'Enabled']
+  AddUser: !Not [ !Equals [ !Ref AdditionalEKSAdminUserArn, "" ] ]
+  AddRole: !Not [ !Equals [ !Ref AdditionalEKSAdminRoleArn, "" ] ]
+  UsingDefaultBucket: !Equals [!Ref LambdaBucketName, 'solodev-kubernetes']
 
 Resources:
 
   #============================================================================#
   # Control plane
   #============================================================================#
+  
+  KMSKey:
+    Condition: CreateKey
+    Type: "AWS::KMS::Key"
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [EIAMPolicyActionWildcard, EKMSKeyEnableKeyRotation]
+          ignore_reasons:
+            EKMSKeyEnableKeyRotation: 'Need to experiment further with the effets of rotating keys and EKS secrets'
+            EIAMPolicyWildcardResource: 'this is the default kms policy as per https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html#key-policy-default'
+    Properties:
+      KeyPolicy: {
+        "Version": "2012-10-17",
+        "Id": "key-default-1",
+        "Statement": [
+          {
+            "Sid": "Enable IAM User Permissions",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            },
+            "Action": "kms:*",
+            "Resource": "*"
+          }
+        ]
+      }
 
   ControlPlane:
     Type: AWS::EKS::Cluster
     Properties:
       Name: !Ref AWS::StackName
-      Version: "1.21"
+      Version: !Ref KubernetesVersion
       RoleArn: !GetAtt ControlPlaneRole.Arn
       ResourcesVpcConfig:
         SecurityGroupIds: 
@@ -247,16 +329,28 @@ Resources:
         SubnetIds:
           - !Ref PrivateSubnet1ID
           - !Ref PrivateSubnet2ID
-        EndpointPublicAccess: false
-        EndpointPrivateAccess: true
-      Logging:
-        ClusterLogging:
-          EnabledTypes:
-            - Type: api
-            - Type: audit
+        PublicAccessCidrs: !Ref EKSPublicAccessCIDRs
+        EndpointPrivateAccess: !If [ EnablePrivateEndpoint, true, false ]
+        EndpointPublicAccess: !If [ EnablePublicEndpoint, true, false ]
+      EncryptionConfig: !If
+        - EnableEncryption
+        - - Resources: [ secrets ]
+            Provider:
+              KeyArn: !If [ CreateKey, !GetAtt KMSKey.Arn, !Ref EKSEncryptSecretsKmsKeyArn ]
+        - !Ref AWS::NoValue
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-ControlPlane"
+
+  ClusterOIDCProvider:
+    Condition: EnableIamOidcProvider
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 9e99a48a9960b14926bb7f3b02e22da2b0ab7280
+      Url: !GetAtt ControlPlane.OpenIdConnectIssuerUrl
 
   ControlPlaneRole:
     Type: AWS::IAM::Role
@@ -272,6 +366,63 @@ Resources:
       ManagedPolicyArns: 
         - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
         - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+
+  KubernetesAdminRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: eksStackPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - eks:*
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                  - lambda:InvokeFunction
+                  - s3:GetObject
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                Resource:  "*"
+              - Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:DeleteRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                Resource:  "*"
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:CreatePolicy
+                  - iam:AttachRolePolicy
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:CreateOpenIDConnectProvider
+                  - iam:GetRole
+                Resource:  "*"
 
   #============================================================================#
   # Control plane security group
@@ -360,6 +511,53 @@ Resources:
       FromPort: 443
       ToPort: 443
   
+  NodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref NodeInstanceRole
+
+  NodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonElasticFileSystemReadOnlyAccess
+      Policies:
+        - PolicyName: route53Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: "route53:ChangeResourceRecordSets"
+                Resource: "arn:aws:route53:::hostedzone/*"
+              - Effect: Allow
+                Action: 
+                  - "route53:ListHostedZones"
+                  - "route53:ListResourceRecordSets"
+                Resource: "*"
+        - PolicyName: AWSRegisterUsage
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aws-marketplace:RegisterUsage
+                Resource: "*"
+
   #============================================================================#
   # Node Group Stack
   #============================================================================#
@@ -373,6 +571,7 @@ Resources:
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/nodegroup.yaml
       Parameters:
+        VPCID: !Ref VPCID
         KeyPairName: !Ref KeyPairName
         NodeGroupOS: !Ref NodeGroupOS
         Subnet1ID: !Ref PrivateSubnet1ID
@@ -388,5 +587,315 @@ Resources:
         NodeInstanceFamily: !Ref NodeInstanceFamily
         NodeGroupType: !Ref NodeGroupType
         NodeSecurityGroupId: !Ref NodeGroupSecurityGroup
+        NodeRoleArn: !GetAtt NodeInstanceRole.Arn
+        NodeInstanceProfileArn: !GetAtt NodeInstanceProfile.Arn
+        NodeInstanceRoleName: !Ref NodeInstanceRole
+        ClusterEndpoint: !GetAtt ControlPlane.Endpoint
+        ClusterCaData: !GetAtt ControlPlane.CertificateAuthorityData
         BootstrapArguments: !If [EnableWeave, "--enable-weave 'true'", ""]
 
+  #============================================================================#
+  # Functions
+  #============================================================================#
+
+  LambdaZipsBucket:
+    Type: AWS::S3::Bucket
+  CopyZips:
+    Type: Custom::CopyZips
+    Properties:
+      ServiceToken: !GetAtt 'CopyZipsFunction.Arn'
+      SourceBucket: !Ref LambdaBucketName
+      DestBucket: !Ref LambdaZipsBucket
+      Prefix: !Ref 'KeyPrefix'
+      Objects:
+      - functions/packages/WebStack/lambda.zip
+      - functions/packages/HelmReleaseResource/awsqs-kubernetes-helm.zip
+      - functions/packages/awscliLayer/lambda.zip
+      - functions/packages/kubectlLayer/lambda.zip
+      - functions/packages/crhelperLayer/lambda.zip
+  ArtifactCopyPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref LambdaZipsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Allow CloudFormation to copy artifacts from the bucket
+            Effect: Allow
+            Principal:
+              Service: "cloudformation.amazonaws.com"
+            Action:
+              - s3:ListBucket
+              - s3:GetObject
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${LambdaZipsBucket}"
+              - !Sub "arn:${AWS::Partition}:s3:::${LambdaZipsBucket}/${KeyPrefix}functions/packages/EksClusterResource/awsqs-eks-cluster.zip"
+              - !Sub "arn:${AWS::Partition}:s3:::${LambdaZipsBucket}/${KeyPrefix}functions/packages/HelmReleaseResource/awsqs-kubernetes-helm.zip"
+  CopyZipsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: lambda-copier
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub
+                  - 'arn:${AWS::Partition}:s3:::${BucketName}/${KeyPrefix}*'
+                  - BucketName: !Ref LambdaBucketName
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${LambdaZipsBucket}/${KeyPrefix}*'
+  RegisterTypeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: S3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${LambdaZipsBucket}/functions/packages/*'
+        - PolicyName: ResourceTypePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "cloudformation:*"
+                  - "iam:PassRole"
+                  - "iam:CreateRole"
+                  - "iam:CreatePolicy"
+                  - "iam:ListPolicyVersions"
+                  - "iam:DeletePolicyVersion"
+                  - "iam:CreatePolicyVersion"
+                  - "iam:AttachRolePolicy"
+                  - "ssm:GetParameter"
+                  - "ssm:PutParameter"
+                  - "sts:GetCallerIdentity"
+                  - "s3:GetObject"
+                Resource: "*"  
+  RegisterTypeFunction:
+    DependsOn: CopyZips
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Role: !GetAtt RegisterTypeRole.Arn
+      Layers: [!Ref CrhelperLayer]
+      Runtime: python3.7
+      Timeout: 900
+      Code:
+        S3Bucket: !Ref LambdaZipsBucket
+        S3Key: !Sub '${KeyPrefix}functions/packages/registerType/lambda.zip'  
+  KubectlLayer:
+    DependsOn: CopyZips
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      Content:
+        S3Bucket: !Ref LambdaZipsBucket
+        S3Key: !Sub '${KeyPrefix}functions/packages/kubectlLayer/lambda.zip'
+  AwsCliLayer:
+    DependsOn: CopyZips
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      Content:
+        S3Bucket: !Ref LambdaZipsBucket
+        S3Key: !Sub '${KeyPrefix}functions/packages/awscliLayer/lambda.zip'
+  CrhelperLayer:
+    DependsOn: CopyZips
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+        - python3.6
+        - python3.7
+      Content:
+        S3Bucket: !Ref LambdaZipsBucket
+        S3Key: !Sub '${KeyPrefix}functions/packages/crhelperLayer/lambda.zip'
+  RegisterHelmType:
+    DependsOn: ArtifactCopyPolicy
+    Type: Custom::RegisterType
+    Properties:
+      ServiceToken: !GetAtt RegisterTypeFunction.Arn
+      TypeName: "AWSQS::Kubernetes::Helm"
+      Version: "2.0.0-beta1"
+      SchemaHandlerPackage: !Sub "s3://${LambdaZipsBucket}/${KeyPrefix}functions/packages/HelmReleaseResource/awsqs-kubernetes-helm.zip"
+      IamPolicy:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - "secretsmanager:GetSecretValue"
+          - "kms:Decrypt"
+          - "eks:DescribeCluster"
+          - "s3:GetObject"
+          - "sts:AssumeRole"
+          - "iam:PassRole"
+          - "iam:ListRolePolicies"
+          - "iam:ListAttachedRolePolicies"
+          - "iam:GetRole"
+          - "iam:GetPolicy"
+          - "iam:GetPolicyVersion"
+          - "ec2:CreateNetworkInterface"
+          - "ec2:DeleteNetworkInterface"
+          - "ec2:Describe*"
+          - "logs:CreateLogGroup"
+          - "logs:CreateLogStream"
+          - "logs:PutLogEvents"
+          - "lambda:*"
+          Resource: "*"
+  EKSLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for lambda to communicate with cluster API
+      VpcId: !Ref VPCID
+  ClusterControlPlaneSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow lambda to communicate with the cluster API Server
+      GroupId: !Ref ControlPlaneSecurityGroup
+      SourceSecurityGroupId: !Ref EKSLambdaSecurityGroup
+      IpProtocol: tcp
+      ToPort: 443
+      FromPort: 443
+  WebStackLambda:
+    DependsOn: [ CopyZips ]
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt KubernetesAdminRole.Arn
+      Runtime: python3.7
+      Timeout: 900
+      Layers: [!Ref KubectlLayer, !Ref CrhelperLayer, !Ref AwsCliLayer]
+      Code:
+        S3Bucket: !Ref LambdaZipsBucket
+        S3Key: !Sub '${KeyPrefix}functions/packages/WebStack/lambda.zip'
+      Environment: { Variables: { KUBECONFIG: /tmp/.kube/config } }
+      VpcConfig:
+        SecurityGroupIds: [!Ref EKSLambdaSecurityGroup]
+        SubnetIds: !If
+          - 3AZDeployment
+          - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]]
+          - !If
+            - 2AZDeployment
+            - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]]
+            - !Ref PrivateSubnet1ID
+  CopyZipsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Copies objects from a source S3 bucket to a destination
+      Handler: index.handler
+      Runtime: python3.7
+      Role: !GetAtt CopyZipsRole.Arn
+      Timeout: 900
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import json
+          import logging
+          import boto3
+          logger = logging.getLogger(__name__)
+          def copy_objects(source_bucket, dest_bucket, prefix, objects):
+              s3 = boto3.client('s3')
+              for o in objects:
+                  key = prefix + o
+                  copy_source = {'Bucket': source_bucket, 'Key': key}
+                  logging.info(f'copy_source: {copy_source}\ndest_bucket: {dest_bucket}\nkey: {key}')
+                  s3.copy_object(CopySource=copy_source, Bucket=dest_bucket, Key=key)
+          def delete_objects(bucket, prefix, objects):
+              s3 = boto3.client('s3')
+              objects = {'Objects': [{'Key': prefix + o} for o in objects]}
+              try:
+                  s3.delete_objects(Bucket=bucket, Delete=objects)
+              except s3.exceptions.NoSuchBucket:
+                  pass
+          def handler(event, context):
+              print('Received event: %s' % json.dumps(event))
+              status = cfnresponse.SUCCESS
+              try:
+                  if event['RequestType'] == 'Delete':
+                      delete_objects(event['ResourceProperties']['DestBucket'], event['ResourceProperties']['Prefix'],
+                                     event['ResourceProperties']['Objects'])
+                  else:
+                      copy_objects(event['ResourceProperties']['SourceBucket'], event['ResourceProperties']['DestBucket'],
+                                   event['ResourceProperties']['Prefix'], event['ResourceProperties']['Objects'])
+              except Exception:
+                  logging.error('Unhandled exception', exc_info=True)
+                  status = cfnresponse.FAILED
+              finally:
+                  cfnresponse.send(event, context, status, {}, None)
+  
+  #============================================================================#
+  # Web Stack
+  #============================================================================#
+
+  NginxIngressStack:
+    DependsOn: WebStackLambda
+    Condition: EnableNginxIngress
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-nginx-ingress.template.yaml
+      Parameters:
+        ClusterName: !Ref AWS::StackName
+  ExternalDNSStack:
+    DependsOn: WebStackLambda
+    Condition: EnableExternalDNS
+    Type: AWS::CloudFormation::Stack
+    Properties: 
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-external-dns.template.yaml
+      Parameters:
+        ClusterName: !Ref AWS::StackName
+  ExternalDNSWaitHandle: 
+    Condition: EnableExternalDNS
+    DependsOn: ExternalDNSStack
+    Type: "AWS::CloudFormation::WaitConditionHandle"
+  LetsEncryptStack:
+    DependsOn: WebStackLambda
+    Condition: EnableNginxIngress
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-lets-encrypt.template.yaml
+      Parameters:
+        ClusterName: !Ref AWS::StackName
+        AdminEmail: !Ref AdminEmail
+
+#============================================================================#
+# Outputs
+#============================================================================#
+
+Outputs:
+  EKSClusterName:
+    Value: !Ref AWS::StackName
+  NodeGroupSecurityGroup:
+    Value: !Ref NodeGroupSecurityGroup
+  ControlPlaneSecurityGroup:
+    Value: !Ref ControlPlaneSecurityGroup
+  OIDCIssuerURL:
+    Value: !Select [1, !Split ["//", !GetAtt ControlPlane.OpenIdConnectIssuerUrl]]
+  WebStackArn:
+    Value: !GetAtt WebStackLambda.Arn

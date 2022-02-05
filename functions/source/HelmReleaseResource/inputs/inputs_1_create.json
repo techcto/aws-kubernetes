@@ -1,0 +1,13 @@
+{
+  "Name": "contracttest",
+  "ID": "eyJDbHVzdGVySUQiOiJoZWxtLWNvbnRyYWNrLXRlc3QiLCJSZWdpb24iOiJ1cy1lYXN0LTEiLCJOYW1lIjoiY29udHJhY3R0ZXN0IiwiTmFtZXNwYWNlIjoiamVua2lucyJ9",
+  "ClusterID": "{{AwsqsEksClusterContractTestClusterName}}",
+  "RoleArn": "{{AwsqsEksClusterContractTestHelmRoleArn}}",
+  "Repository": "https://charts.jenkins.io",
+  "Namespace": "jenkins",
+  "Chart": "jenkins/jenkins",
+  "Version": "3.1.7",
+  "Values": {
+    "controller.healthProbes": "false"
+  }
+}

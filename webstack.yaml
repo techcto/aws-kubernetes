@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploys Solodev Webstack for Kubernetes
+
+Parameters:
+  ClusterName:
+    Type: String
+    Default: ""
+  AdminEmail:
+    Type: String
+    Default: ""
+    Description: "What is your email address?"
+  ProvisionNginxIngress:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Inginx Proxy"
+  ProvisionExternalDNS:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable External DNS with Route 53"
+
+Conditions:
+  EnableNginxIngress: !Equals [!Ref 'ProvisionNginxIngress', 'Enabled']
+  EnableExternalDNS: !Equals [!Ref 'ProvisionExternalDNS', 'Enabled']
+
+Resources:
+  
+  #============================================================================#
+  # Web Stack
+  #============================================================================#
+
+  NginxIngressStack:
+    Condition: EnableNginxIngress
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-nginx-ingress.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+  ExternalDNSStack:
+    Condition: EnableExternalDNS
+    Type: AWS::CloudFormation::Stack
+    Properties: 
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-external-dns.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+  ExternalDNSWaitHandle: 
+    Condition: EnableExternalDNS
+    DependsOn: ExternalDNSStack
+    Type: "AWS::CloudFormation::WaitConditionHandle"
+  LetsEncryptStack:
+    Condition: EnableNginxIngress
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-lets-encrypt.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        AdminEmail: !Ref AdminEmail

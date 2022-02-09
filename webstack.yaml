@@ -2,6 +2,25 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Deploys Solodev Webstack for Kubernetes
 
 Parameters:
+  VPCID:
+    Type: "AWS::EC2::VPC::Id"
+    Description: The ID of your existing VPC (e.g., vpc-0343606e)
+  ControlPlaneSecurityGroup:
+    Type: String
+    Default: ""
+  KubernetesAdminRoleArn:
+    Type: String
+    Default: ""
+  LambdaBucketName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    Default: solodev-kubernetes
+    Type: String
+  KeyPrefix:
+    AllowedPattern: ^[0-9a-zA-Z-/.]*$
+    Default: cloudformation/
+    Type: String
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
   ClusterName:
     Type: String
     Default: ""
@@ -19,40 +38,135 @@ Parameters:
     AllowedValues: [ "Enabled", "Disabled" ]
     Default: "Enabled"
     Description: "Choose Enabled to enable External DNS with Route 53"
+  ProvisionDashboard:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Dashboard"
+  ProvisionAccessToken:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Token"
+
+Mappings:
+  Config:
+    Prefix: { Value: 'eks-quickstart' }
 
 Conditions:
   EnableNginxIngress: !Equals [!Ref 'ProvisionNginxIngress', 'Enabled']
   EnableExternalDNS: !Equals [!Ref 'ProvisionExternalDNS', 'Enabled']
+  EnableDashboard: !Equals [!Ref 'ProvisionDashboard', 'Enabled']
+  EnableAccessToken: !Equals [!Ref 'ProvisionAccessToken', 'Enabled']
 
 Resources:
+
+  #============================================================================#
+  # Functions
+  #============================================================================#
+
+  EKSLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for lambda to communicate with cluster API
+      VpcId: !Ref VPCID
+  ClusterControlPlaneSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow lambda to communicate with the cluster API Server
+      GroupId: !Ref ControlPlaneSecurityGroup
+      SourceSecurityGroupId: !Ref EKSLambdaSecurityGroup
+      IpProtocol: tcp
+      ToPort: 443
+      FromPort: 443
+  GetKubectlLayerArn:
+    Type: Custom::CliQuery
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      AwsCliCommand: !Sub
+      - |
+        lambda list-layer-versions --layer-name ${Prefix}-Kubectl --query 'max_by(LayerVersions, &Version)'
+      - Prefix: !FindInMap [Config, Prefix, Value]
+      IdField: 'LayerVersionArn'
+  GetCrhelperLayerArn:
+    Type: Custom::CliQuery
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      AwsCliCommand: !Sub
+      - |
+        lambda list-layer-versions --layer-name ${Prefix}-Crhelper --query 'max_by(LayerVersions, &Version)'
+      - Prefix: !FindInMap [Config, Prefix, Value]
+      IdField: 'LayerVersionArn'
+  GetAwsCliLayerArn:
+    Type: Custom::CliQuery
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      AwsCliCommand: !Sub
+      - |
+        lambda list-layer-versions --layer-name ${Prefix}-AwsCli --query 'max_by(LayerVersions, &Version)'
+      - Prefix: !FindInMap [Config, Prefix, Value]
+      IdField: 'LayerVersionArn'
+  WebStackLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      MemorySize: 256
+      Role: !Ref KubernetesAdminRoleArn
+      Runtime: python3.7
+      Timeout: 900
+      Layers: [!Ref GetKubectlLayerArn, !Ref GetCrhelperLayerArn, !Ref GetAwsCliLayerArn]
+      Code:
+        S3Bucket: !Ref LambdaBucketName
+        S3Key: !Sub '${KeyPrefix}functions/packages/WebStack/lambda.zip'
+      Environment: { Variables: { KUBECONFIG: /tmp/.kube/config } }
+      VpcConfig:
+        SecurityGroupIds: [!Ref EKSLambdaSecurityGroup]
+        SubnetIds: !Ref SubnetIds
   
   #============================================================================#
   # Web Stack
   #============================================================================#
 
   NginxIngressStack:
+    DependsOn: WebStackLambda
     Condition: EnableNginxIngress
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-nginx-ingress.template.yaml
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-nginx-ingress.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
   ExternalDNSStack:
+    DependsOn: WebStackLambda
     Condition: EnableExternalDNS
     Type: AWS::CloudFormation::Stack
     Properties: 
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-external-dns.template.yaml
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-external-dns.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
-  ExternalDNSWaitHandle: 
-    Condition: EnableExternalDNS
-    DependsOn: ExternalDNSStack
-    Type: "AWS::CloudFormation::WaitConditionHandle"
   LetsEncryptStack:
+    DependsOn: WebStackLambda
     Condition: EnableNginxIngress
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/solodev-eks-lets-encrypt.template.yaml
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-lets-encrypt.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
         AdminEmail: !Ref AdminEmail
+  DashboardStack:
+    DependsOn: WebStackLambda
+    Condition: EnableDashboard
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        WebStackArn: !GetAtt WebStackLambda.Arn
+  AccessTokenStack:
+    DependsOn: DashboardStack
+    Condition: EnableAccessToken
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-token.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        WebStackArn: !GetAtt WebStackLambda.Arn

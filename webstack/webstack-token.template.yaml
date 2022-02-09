@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Obtains API token from an existing kubernetes cluster (qs-1qde66ffn)"
+
+Metadata: 
+
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "EKS Cluster"
+        Parameters: 
+          - WebStackArn
+          - ClusterName
+
+Parameters:
+
+  WebStackArn:
+    Type: String
+
+  ClusterName:
+    Type: String
+
+Resources:
+
+  AccessToken:
+    Type: "Custom::WebStack"
+    Version: '1.0'
+    Properties:
+      ServiceToken: !Ref WebStackArn
+      ClusterName: !Ref ClusterName
+      AccessToken:
+        Enable: "true"
+
+Outputs:
+  AccessToken: 
+    Value: !GetAtt AccessToken.Token
+    Description: Return secure access token

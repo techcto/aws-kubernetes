@@ -33,7 +33,7 @@ Resources:
           name: controller
           service:
             annotations:
-              service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+              service.beta.kubernetes.io/aws-load-balancer-internal: "true"
           publishService:
             enabled: true
           stats:
@@ -42,4 +42,3 @@ Resources:
             enabled: true
           hostNetwork: true
           kind: DaemonSet
-

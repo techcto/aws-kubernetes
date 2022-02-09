@@ -1,5 +1,7 @@
 functions/packages/*
 submodules/*
+taskcat_outputs
 bin/*
 eks.json
 .env
+*zip

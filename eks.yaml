@@ -558,33 +558,33 @@ Resources:
   # Web Stack
   #============================================================================#
 
-  # WebStack:
-  #   Type: "AWS::CloudFormation::Stack"
-  #   DependsOn: ControlPlane
-  #   Properties:
-  #     TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
-  #     Parameters:
-  #       VPCID: !Ref VPCID
-  #       ControlPlaneSecurityGroup: !Ref ControlPlaneSecurityGroup
-  #       KubernetesAdminRoleArn: !GetAtt KubernetesAdminRole.Arn
-  #       SubnetIds: !If
-  #         - EnablePublicSubnets
-  #         - !If
-  #           - 3AZDeployment
-  #           - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID, !Ref PublicSubnet3ID ]]
-  #           - !If
-  #             - 2AZDeployment
-  #             - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID ]]
-  #             - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PublicSubnet1ID ]]
-  #         - !If
-  #           - 3AZDeployment
-  #           - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]]
-  #           - !If
-  #             - 2AZDeployment
-  #             - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]]
-  #             - !Join [",", [ !Ref PrivateSubnet1ID ]]
-  #       ClusterName: !Ref AWS::StackName
-  #       AdminEmail: !Ref AdminEmail
+  WebStack:
+    Type: "AWS::CloudFormation::Stack"
+    DependsOn: ControlPlane
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
+      Parameters:
+        VPCID: !Ref VPCID
+        ControlPlaneSecurityGroup: !Ref ControlPlaneSecurityGroup
+        KubernetesAdminRoleArn: !GetAtt KubernetesAdminRole.Arn
+        SubnetIds: !If
+          - EnablePublicSubnets
+          - !If
+            - 3AZDeployment
+            - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID, !Ref PublicSubnet3ID ]]
+            - !If
+              - 2AZDeployment
+              - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID ]]
+              - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PublicSubnet1ID ]]
+          - !If
+            - 3AZDeployment
+            - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]]
+            - !If
+              - 2AZDeployment
+              - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]]
+              - !Join [",", [ !Ref PrivateSubnet1ID ]]
+        ClusterName: !Ref AWS::StackName
+        AdminEmail: !Ref AdminEmail
 
 #============================================================================#
 # Outputs

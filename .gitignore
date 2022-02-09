@@ -1,5 +1,6 @@
 functions/packages/*
 submodules/*
+*taskcat
 taskcat_outputs
 bin/*
 eks.json

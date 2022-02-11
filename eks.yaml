@@ -226,6 +226,13 @@ Parameters:
     AllowedValues: [ "Enabled", "Disabled" ]
     Default: "Enabled"
     Description: "Choose Enabled to enable Weave CNI"
+  LambdaBucketName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    Default: solodev-kubernetes
+    Type: String
+  KeyPrefix:
+    Default: cloudformation/
+    Type: String
   CustomAmiId:
     Type: String
     Default: "ami-0d6c8b2a8562eba37"
@@ -422,7 +429,7 @@ Resources:
 
   ControlPlane:
     Type: "AWSQS::EKS::Cluster"
-    DependsOn: CleanupLoadBalancers
+    DependsOn: SharedResources
     Properties:
       Name: !Ref AWS::StackName
       ResourcesVpcConfig:
@@ -557,33 +564,91 @@ Resources:
   #============================================================================#
   # Web Stack
   #============================================================================#
-
-  WebStack:
-    Type: "AWS::CloudFormation::Stack"
-    DependsOn: ControlPlane
+  
+  EKSLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
-      Parameters:
-        VPCID: !Ref VPCID
-        ControlPlaneSecurityGroup: !Ref ControlPlaneSecurityGroup
-        KubernetesAdminRoleArn: !GetAtt KubernetesAdminRole.Arn
+      GroupDescription: Security group for lambda to communicate with cluster API
+      VpcId: !Ref VPCID
+  ClusterControlPlaneSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow lambda to communicate with the cluster API Server
+      GroupId: !Ref ControlPlaneSecurityGroup
+      SourceSecurityGroupId: !Ref EKSLambdaSecurityGroup
+      IpProtocol: tcp
+      ToPort: 443
+      FromPort: 443
+  GetKubectlLayerArn:
+    DependsOn: SharedResources
+    Type: Custom::CliQuery
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      AwsCliCommand: !Sub
+        - |
+          lambda list-layer-versions --layer-name ${Prefix}-Kubectl --query 'max_by(LayerVersions, &Version)'
+        - Prefix: !FindInMap [Config, Prefix, Value]
+      IdField: 'LayerVersionArn'
+  GetCrhelperLayerArn:
+    DependsOn: SharedResources
+    Type: Custom::CliQuery
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      AwsCliCommand: !Sub
+        - |
+          lambda list-layer-versions --layer-name ${Prefix}-Crhelper --query 'max_by(LayerVersions, &Version)'
+        - Prefix: !FindInMap [Config, Prefix, Value]
+      IdField: 'LayerVersionArn'
+  GetAwsCliLayerArn:
+    DependsOn: SharedResources
+    Type: Custom::CliQuery
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      AwsCliCommand: !Sub
+        - |
+          lambda list-layer-versions --layer-name ${Prefix}-AwsCli --query 'max_by(LayerVersions, &Version)'
+        - Prefix: !FindInMap [Config, Prefix, Value]
+      IdField: 'LayerVersionArn'
+  WebStackLambda:
+    DependsOn: NodeGroupStack
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt KubernetesAdminRole.Arn
+      Runtime: python3.7
+      Timeout: 900
+      Layers: [!Ref GetKubectlLayerArn, !Ref GetCrhelperLayerArn, !Ref GetAwsCliLayerArn]
+      Code:
+        S3Bucket: !Ref LambdaBucketName
+        S3Key: !Sub '${KeyPrefix}functions/packages/WebStack/lambda.zip'
+      Environment: { Variables: { KUBECONFIG: /tmp/.kube/config } }
+      VpcConfig:
+        SecurityGroupIds: [!Ref EKSLambdaSecurityGroup]
         SubnetIds: !If
           - EnablePublicSubnets
           - !If
             - 3AZDeployment
-            - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID, !Ref PublicSubnet3ID ]]
+            - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID, !Ref PublicSubnet3ID ]
             - !If
               - 2AZDeployment
-              - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID ]]
-              - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PublicSubnet1ID ]]
+              - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID ]
+              - [ !Ref PrivateSubnet1ID, !Ref PublicSubnet1ID ]
           - !If
             - 3AZDeployment
-            - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]]
+            - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]
             - !If
               - 2AZDeployment
-              - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]]
-              - !Join [",", [ !Ref PrivateSubnet1ID ]]
+              - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]
+              - [ !Ref PrivateSubnet1ID ]
+  WebStack:
+    Type: "AWS::CloudFormation::Stack"
+    DependsOn: WebStackLambda
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
+      Parameters:
         ClusterName: !Ref AWS::StackName
+        WebStackArn: !GetAtt WebStackLambda.Arn
         AdminEmail: !Ref AdminEmail
 
 #============================================================================#
@@ -608,3 +673,5 @@ Outputs:
   NumberOfNodes:
     Value: !Ref NumberOfNodes
     Description: Number of Nodes
+  WebStackArn:
+    Value: !GetAtt WebStackLambda.Arn

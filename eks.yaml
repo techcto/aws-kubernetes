@@ -241,6 +241,30 @@ Parameters:
     Type: String
     Default: ""
     Description: "What is your email address?"
+  ProvisionLoadBalancerController:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+  ProvisionNginxIngress:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Inginx Proxy"
+  ProvisionExternalDNS:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable External DNS with Route 53"
+  ProvisionDashboard:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Dashboard"
+  ProvisionAccessToken:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable Token"
 
 Mappings:
   Config:
@@ -252,6 +276,7 @@ Conditions:
   EnablePublicSubnets: !Not [!Equals [!Ref PublicSubnet1ID, ""]]
   EnablePrivateEndpoint: !Equals [ !Ref EKSPrivateAccessEndpoint, "Enabled" ]
   EnablePublicEndpoint: !Equals [ !Ref EKSPublicAccessEndpoint, "Enabled" ]
+  EnableLoadBalancerController: !Equals [!Ref 'ProvisionLoadBalancerController', 'Enabled']
   CustomeNodeRoleProvided: !Not [ !Equals [ !Ref CustomNodeRole, "" ] ]
   CreateKey: !And
     - !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
@@ -267,6 +292,7 @@ Conditions:
   EnableWeave: !Equals [!Ref 'ProvisionWeave', 'Enabled']
   AddUser: !Not [ !Equals [ !Ref AdditionalEKSAdminUserArn, "" ] ]
   AddRole: !Not [ !Equals [ !Ref AdditionalEKSAdminRoleArn, "" ] ]
+  EnableAccessToken: !Equals [!Ref 'ProvisionAccessToken', 'Enabled']
 
 Resources:
 
@@ -560,6 +586,17 @@ Resources:
         CreateNodeGroup: !Ref ManagedNodeGroup
         Labels: !Sub "Name=Nodegroup-${AWS::StackName}"
         BootstrapArguments: !If [EnableWeave, "--enable-weave 'true'", ""]
+
+  LoadBalancerStack:
+    DependsOn: NodeGroupStack
+    Condition: EnableLoadBalancerController
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/amazon-eks-load-balancer-controller.template.yaml
+      Parameters:
+        OIDCIssuerURLWithoutProtocol:  !Join [ '', !Split [ 'https://', !GetAtt ControlPlane.OIDCIssuerURL ] ]
+        EksClusterName: !Ref AWS::StackName
+        VpcId: !Ref VPCID
   
   #============================================================================#
   # Web Stack
@@ -650,6 +687,10 @@ Resources:
         ClusterName: !Ref AWS::StackName
         WebStackArn: !GetAtt WebStackLambda.Arn
         AdminEmail: !Ref AdminEmail
+        ProvisionNginxIngress: !Ref 'ProvisionNginxIngress'
+        ProvisionExternalDNS: !Ref 'ProvisionExternalDNS'
+        ProvisionDashboard: !Ref 'ProvisionDashboard'
+        ProvisionAccessToken: !Ref 'ProvisionAccessToken'
 
 #============================================================================#
 # Outputs
@@ -664,8 +705,6 @@ Outputs:
     Value: !GetAtt ControlPlane.Endpoint
   OIDCIssuerURL:
     Value: !GetAtt ControlPlane.OIDCIssuerURL
-  EKSClusterName:
-    Value: !Ref ControlPlane
   ControlPlaneSecurityGroup:
     Value: !Ref ControlPlaneSecurityGroup
   SysOpsAdminRoleArn:
@@ -673,5 +712,11 @@ Outputs:
   NumberOfNodes:
     Value: !Ref NumberOfNodes
     Description: Number of Nodes
+  EKSClusterName:
+    Value: !Ref ControlPlane
   WebStackArn:
     Value: !GetAtt WebStackLambda.Arn
+  AccessToken: 
+    Condition: EnableAccessToken
+    Value: !GetAtt WebStack.Outputs.AccessToken
+    Description: Return secure access token

@@ -11,6 +11,7 @@ DATE=$(date +%d%H%M)
 aws s3 cp eks.yaml s3://solodev-kubernetes/cloudformation/eks.yaml --acl public-read
 aws s3 cp nodegroup.yaml s3://solodev-kubernetes/cloudformation/nodegroup.yaml --acl public-read
 aws s3 cp submodules/quickstart-amazon-eks-nodegroup/templates/amazon-eks-nodegroup.template.yaml s3://solodev-kubernetes/cloudformation/amazon-eks-nodegroup.template.yaml --acl public-read
+aws s3 cp submodules/quickstart-amazon-eks/templates/amazon-eks-load-balancer-controller.template.yaml s3://solodev-kubernetes/cloudformation/amazon-eks-load-balancer-controller.template.yaml --acl public-read
 
 aws s3 cp webstack.yaml s3://solodev-kubernetes/cloudformation/webstack.yaml --acl public-read
 aws s3 sync webstack s3://solodev-kubernetes/cloudformation/webstack --delete

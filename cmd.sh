@@ -13,6 +13,7 @@ init(){
     git submodule add -f https://github.com/aws-quickstart/quickstart-linux-bastion.git ./submodules/quickstart-linux-bastion
     git submodule add -f https://github.com/techcto/amazon-eks-ami.git ./submodules/amazon-eks-ami
     git submodule add -f https://github.com/aws-quickstart/quickstart-amazon-eks-nodegroup.git ./submodules/quickstart-amazon-eks-nodegroup
+    git submodule add -f https://github.com/aws-quickstart/quickstart-amazon-eks.git ./submodules/quickstart-amazon-eks
 }
 
 update(){

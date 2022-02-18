@@ -44,8 +44,15 @@ Resources:
   #============================================================================#
   # Web Stack
   #============================================================================#
-  
+  ExternalDNSStack:
+    Condition: EnableExternalDNS
+    Type: AWS::CloudFormation::Stack
+    Properties: 
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-external-dns.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
   DashboardStack:
+    DependsOn: ExternalDNSStack
     Condition: EnableDashboard
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -54,17 +61,11 @@ Resources:
         ClusterName: !Ref ClusterName
         WebStackArn: !Ref WebStackArn
   NginxIngressStack:
+    DependsOn: DashboardStack
     Condition: EnableNginxIngress
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-nginx-ingress.template.yaml
-      Parameters:
-        ClusterName: !Ref ClusterName
-  ExternalDNSStack:
-    Condition: EnableExternalDNS
-    Type: AWS::CloudFormation::Stack
-    Properties: 
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-external-dns.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
   LetsEncryptStack:
@@ -75,12 +76,20 @@ Resources:
       Parameters:
         ClusterName: !Ref ClusterName
         AdminEmail: !Ref AdminEmail
-  # AccessTokenStack:
-  #   DependsOn: DashboardStack
-  #   Condition: EnableAccessToken
-  #   Type: AWS::CloudFormation::Stack
-  #   Properties:
-  #     TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-token.template.yaml
-  #     Parameters:
-  #       ClusterName: !Ref ClusterName
-  #       WebStackArn: !Ref WebStackArn
+  AccessTokenStack:
+    DependsOn: DashboardStack
+    Condition: EnableAccessToken
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-token.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        WebStackArn: !Ref WebStackArn
+
+#============================================================================#
+# Outputs
+#============================================================================#
+
+Outputs:
+  AccessToken:
+    Value: !GetAtt AccessTokenStack.Outputs.AccessToken

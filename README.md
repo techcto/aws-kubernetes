@@ -32,7 +32,7 @@ With your EKS cluster up and running, you can install apps within the cluster it
 		</td>
 	</tr>
 </table>
-<table>
+<!-- <table>
 	<tr>
 		<td width="150"><a href="pages/deploy-solodev-cms.md"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/solodev-dcx-for-eks.jpg" /></a></td>
 		<td>
@@ -41,7 +41,7 @@ With your EKS cluster up and running, you can install apps within the cluster it
 			<p align="right"><a href="pages/deploy-solodev-cms.md">More Details</a></p>
 		</td>
 	</tr>
-</table>
+</table> -->
 
 ## Support
 Houston, we have no problems… because Solodev Customer Care has your back at every step! From our world-class HelpDesk to our focused training sessions, you’ve got the best team on the ground to get you to the stars. 

@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-mysql
+spec:
+  serviceName: {{ .Release.Name }}-mysql
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-mysql
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-mysql
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-mysql
+            topologyKey: "kubernetes.io/hostname"
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-redis
+            topologyKey: "kubernetes.io/hostname"
+      initContainers:
+      - name: {{ .Release.Name }}-init-mysql
+        image: {{ .Values.mysql.image.registry }}/{{ .Values.mysql.image.repository }}:{{ .Values.mysql.image.tag }}
+        env:
+        - name: MYSQL_INITDB_SKIP_TZINFO
+          value: "yes"
+        command:
+        - bash
+        - "-c"
+        - |
+          set -ex
+          # Generate mysql server-id from pod ordinal index.
+          [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+          ordinal=${BASH_REMATCH[1]}
+          echo [mysqld] > /mnt/conf.d/server-id.cnf
+          # Add an offset to avoid reserved server-id=0 value.
+          echo server-id=$((100 + $ordinal)) >> /mnt/conf.d/server-id.cnf
+          # Copy appropriate conf.d files from config-map to emptyDir.
+          if [[ $ordinal -eq 0 ]]; then
+            cp /mnt/config-map/master.cnf /mnt/conf.d/
+            echo log-basename={{ .Release.Name }}-mysql-0 >> /mnt/conf.d/server-id.cnf
+          else
+            cp /mnt/config-map/slave.cnf /mnt/conf.d/
+          fi
+        volumeMounts:
+        - name: conf
+          mountPath: /mnt/conf.d
+        - name: config-map
+          mountPath: /mnt/config-map
+      containers:
+      - name: {{ .Release.Name }}-mysql
+        image: {{ .Values.mysql.image.registry }}/{{ .Values.mysql.image.repository }}:{{ .Values.mysql.image.tag }}
+        args:
+        - --sql_mode=
+        - --ignore_db_dirs=lost+found
+        - --innodb-buffer-pool-size=128M
+        - --max_allowed_packet=16M
+        env:
+        - name: MYSQL_INITDB_SKIP_TZINFO
+          value: "yes"
+        - name: MYSQL_DATABASE
+          value: {{ .Values.solodev.settings.dbName }}
+        - name: MYSQL_ROOT_PASSWORD
+          value: {{ .Values.solodev.settings.dbPassword }}
+        - name: MYSQL_USER
+          value: {{ .Values.solodev.settings.dbUser }}
+        - name: MYSQL_PASSWORD
+          value: {{ .Values.solodev.settings.dbPassword }}
+        ports:
+        - name: mysql
+          containerPort: {{ .Values.mysql.port }}
+        volumeMounts:
+        - name: {{ .Release.Name }}-db
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+        resources:
+          requests:
+            memory: 128M
+            cpu: 50m
+            # ephemeral-storage: 200M
+          limits:
+            memory: 1G
+            cpu: 500m
+            # ephemeral-storage: 1G
+        livenessProbe:
+          exec:
+            command: ["sh", "-c", "exec mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 1
+          # successThreshold: 1
+          # failureThreshold: 3
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "exec mysqladmin status -uroot -p$MYSQL_ROOT_PASSWORD"]
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 1
+          # successThreshold: 1
+          # failureThreshold: 3
+      volumes:
+      - name: conf
+        emptyDir: {}
+      - name: config-map
+        configMap:
+          name: {{ .Release.Name }}-mysql
+      - name: {{ .Release.Name }}-db
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-client

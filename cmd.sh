@@ -16,6 +16,15 @@ init(){
     git submodule add -f https://github.com/aws-quickstart/quickstart-amazon-eks.git ./submodules/quickstart-amazon-eks
 }
 
+merge() {
+    cd submodule/amazon-eks-ami
+    git pull https://github.com/awslabs/amazon-eks-ami.git master --allow-unrelated-histories
+    git fetch upstream
+    git checkout job_stabilize_fix
+    git merge job_stabilize_fix
+    cd ../../
+}
+
 update(){
     git submodule update
 }
@@ -24,6 +33,15 @@ build(){
     export AWS_PROFILE=default
     taskcat test run --lint-disable
     # taskcat test run
+}
+
+helm(){
+    cd charts
+    ./deploy.sh
+}
+
+lambda(){
+    zip a functions/packages/WebStack/lambda.zip ./functions/source/WebStack/*
 }
 
 cft(){

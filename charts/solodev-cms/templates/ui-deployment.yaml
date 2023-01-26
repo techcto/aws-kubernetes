@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ui
+  labels:
+    app: {{ .Release.Name }}-ui
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-ui
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-ui
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      imagePullSecrets:
+      - name: {{ .Values.solodev.pullSecret }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-ui
+            topologyKey: "kubernetes.io/hostname"
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-redis
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - env:
+        - name: APP_ENV
+          value: {{ .Values.env }}
+        - name: APP_URL
+          value: "{{ .Release.Name }}-solodev:{{ .Values.solodev.port }}"
+        image: {{ .Values.ui.image.registry }}/{{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag }}
+        name: {{ .Release.Name }}-ui
+        ports:
+        - containerPort: {{ .Values.ui.http.port }}
+        - containerPort: {{ .Values.ui.https.port }}
+        resources: {}
+        volumeMounts:
+        - name: client
+          mountPath: {{ quote .Values.solodev.storage.mount }}
+          subPath: client
+        resources:
+          requests:
+            memory: 16M
+            cpu: 20m
+            # ephemeral-storage: 100M
+          limits:
+            memory: 32M
+            cpu: 50m
+            # ephemeral-storage: 500M
+      restartPolicy: Always
+      volumes:
+      - name: client
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-client

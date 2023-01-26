@@ -106,29 +106,29 @@ def enable_marketplace(cluster_name, namespace, role_name):
     except Exception as exception:
         print("There was an error.")
 
-def enable_dashboard():
-    logger.debug(run_command("kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.5/aio/deploy/alternative.yaml"))
-    logger.debug(run_command("kubectl apply -f https://raw.githubusercontent.com/techcto/charts/master/solodev-network/templates/admin-role.yaml"))
-    logger.debug(run_command("kubectl create clusterrolebinding permissive-binding --clusterrole=cluster-admin --user=admin --user=kubelet --group=system:serviceaccounts;"))
+def enable_solodev():
+    logger.debug(run_command("kubectl apply -f http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/admin-role.yaml"))
+    logger.debug(run_command("kubectl apply -f http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/storage-class.yaml"))
+    print("Get Access Token")
+    TOKEN = run_command("kubectl get secrets -n kube-system -o jsonpath=\"{.items[?(@.metadata.annotations['kubernetes\.io/service-account\.name']=='solodev-admin')].data.token}\"")
+    helper.Data['Token'] = TOKEN
 
-def get_token():
-    token=subprocess.check_output("kubectl get secrets -n kube-system -o jsonpath=\"{.items[?(@.metadata.annotations['kubernetes\.io/service-account\.name']=='eks-admin')].data.token}\"", shell=True).decode("utf-8")
-    helper.Data['Token'] = token
 
 @helper.create
 @helper.update
 def create_handler(event, _):
     print('Received event: %s' % json.dumps(event))
     create_kubeconfig(event['ResourceProperties']['ClusterName'])
-    response_data = {}
     if 'Weave' in event['ResourceProperties'].keys():
         enable_weave()
-    if 'Dashboard' in event['ResourceProperties'].keys():
-        enable_dashboard()
     if 'Marketplace' in event['ResourceProperties'].keys():
         enable_marketplace(event['ResourceProperties']['ClusterName'], event['ResourceProperties']['Namespace'], event['ResourceProperties']['ServiceRoleName'])
-    if 'AccessToken' in event['ResourceProperties'].keys():
-        get_token()
+    if 'Solodev' in event['ResourceProperties'].keys():
+        enable_solodev()
+
+@helper.delete
+def no_op(_, __):
+    pass
 
 def lambda_handler(event, context):
     helper(event, context)

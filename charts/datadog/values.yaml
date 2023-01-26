@@ -1,0 +1,3 @@
+env: prod
+ssl:
+  email: ssl@domain.com

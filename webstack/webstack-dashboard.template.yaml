@@ -12,7 +12,6 @@ Metadata:
         Parameters: 
           - ClusterName
           - ClusterZone
-          - WebStackArn
           - Namespace
       - 
         Label: 
@@ -27,9 +26,6 @@ Metadata:
           - CloudKeySet
 
 Parameters:
-
-  WebStackArn:
-    Type: String
 
   ClusterName:
     Type: String
@@ -46,14 +42,17 @@ Parameters:
   OIDCUrl:
     Type: String
     Description: "OIDC Url format: https://oidc.eks:<region>.amazonaws.com/id/<providerid>"
+    Default: ''
 
   CloudClientId:
     Type: String
     Description: AWS Cognito App Id
+    Default: ''
 
   CloudClientSecret:
     Type: String
     Description: AWS Cognito App Secret
+    Default: ''
 
   CloudRedirectURI:
     Type: String
@@ -73,38 +72,14 @@ Parameters:
 
 Resources:
 
-  # MetricsServer:
-  #   Type: "AWSQS::Kubernetes::Helm"
-  #   Version: '1.0'
-  #   Properties:
-  #     ClusterID: !Ref ClusterName
-  #     Namespace: metrics
-  #     Chart: stable/metrics-server
-  #     Name: metrics-server
-  #     ValueYaml: !Sub |
-  #       hostNetwork:
-  #         enabled: true
-
-  # Dashboard:
-  #   DependsOn: MetricsServer
-  #   Type: "Custom::WebStack"
-  #   Version: '1.0'
-  #   Properties:
-  #     ServiceToken: !Ref WebStackArn
-  #     ClusterName: !Ref ClusterName
-  #     Dashboard:
-  #       Enable: "true"
-  #     Count: 0
-
   Dashboard:
     Type: "AWSQS::Kubernetes::Helm"
-    Version: '1.0'
     Properties:
       ClusterID: !Ref ClusterName
       Namespace: !Ref Namespace
-      Repository: "https://raw.githubusercontent.com/techcto/charts/master"
-      Chart: charts/kubernetes-dashboard
-      Name: !Ref AWS::StackName
+      Repository: "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts"
+      Chart: solodev/kubernetes-dashboard
+      Name: kubernetes-dashboard
       Version: 1.1
       ValueYaml: !Sub |
         provider:

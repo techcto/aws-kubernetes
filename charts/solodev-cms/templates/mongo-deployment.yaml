@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-mongo
+  labels:
+    app: {{ .Release.Name }}-mongo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-mongo
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-mongo
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-mongo
+            topologyKey: "kubernetes.io/hostname"
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-redis
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - env:
+        - name: MONGO_INITDB_DATABASE
+          value: {{ .Values.solodev.settings.mongoDbName }}
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          value: {{ .Values.mongo.settings.password }}
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: {{ .Values.mongo.settings.username }}
+        image: {{ .Values.mongo.image.registry }}/{{ .Values.mongo.image.repository }}:{{ .Values.mongo.image.tag }}
+        name: {{ .Release.Name }}-mongo
+        ports:
+        - containerPort: {{ .Values.mongo.port }}
+        volumeMounts:
+        - name:  {{ .Release.Name }}-db
+          mountPath: "/data"
+          subPath: mongo
+        - name: home
+          mountPath: /home/mongodb/
+        resources:
+          requests:
+            memory: 128M
+            cpu: 5m
+            # ephemeral-storage: 100M
+          limits:
+            memory: 1G
+            cpu: 500m
+            # ephemeral-storage: 500M
+      restartPolicy: Always
+      volumes:
+      - name: home
+        emptyDir: {}
+      - name:  {{ .Release.Name }}-db
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-client

@@ -21,11 +21,11 @@ Resources:
 
   ExternalDNS:
     Type: "AWSQS::Kubernetes::Helm"
-    Version: '1.0'
     Properties:
       ClusterID: !Ref ClusterName
       Namespace: external-dns
-      Chart: stable/external-dns
+      Repository: https://charts.bitnami.com/bitnami
+      Chart: bitnami/external-dns
       Name: external-dns
       ValueYaml: !Sub |
         logLevel: debug

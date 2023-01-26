@@ -1,0 +1,7 @@
+apiVersion: v1
+name: network
+version: 1.0
+description: Network for Solodev Managed Kubernetes
+icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+keywords:
+  - Solodev, Network, Cloud

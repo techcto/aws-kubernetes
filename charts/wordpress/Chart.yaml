@@ -1,0 +1,7 @@
+apiVersion: v1
+name: wordpress
+version: 5.4
+description: Wordpress is a classic content management system.
+icon: https://www.wordpress.com/_/images/wordpress-logo-red.jpg
+keywords:
+  - Wordpress, CMS, AWS, Docker, Kubernetes

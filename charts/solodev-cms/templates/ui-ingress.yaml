@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ui
+  annotations:
+    host: "{{ .Release.Name }}.{{ .Values.solodev.clusterZone }}"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "180"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/rewrite-target: / #<--this caused all URLs to be rewritten to /
+    nginx.ingress.kubernetes.io/service-upstream: "true"
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "route"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "172800"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "172800"
+    # ingress.kubernetes.io/secure-backends: "true"
+    # nginx.ingress.kubernetes.io/upstream-vhost: "{{ .Release.Name }}.{{ .Values.solodev.clusterZone }}"
+    nginx.ingress.kubernetes.io/proxy_buffering: on; 
+    nginx.ingress.kubernetes.io/proxy_buffer_size: 32k; # should be enough for most PHP websites, or adjust as above
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    nginx.ingress.kubernetes.io/proxy_busy_buffers_size: 40k; # essentially, proxy_buffer_size + 2 small buffers of 4k
+spec:
+  tls:
+  - hosts:
+    - {{ .Release.Name }}.{{ .Values.solodev.clusterZone }}
+    secretName: {{ .Release.Name }}-tls
+  rules:
+  - host: {{ .Release.Name }}.{{ .Values.solodev.clusterZone }}
+    http:
+      paths:
+        - path: /
+          backend:
+            serviceName: {{ .Release.Name }}-ui
+            servicePort: {{ .Values.ui.http.port }}
+

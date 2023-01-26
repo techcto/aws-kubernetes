@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: {{ .Release.Name }}-mysql
+  name: {{ .Release.Name }}-mysql
+spec:
+  ports:
+  - name: "mysql"
+    port: {{ .Values.mysql.port }}
+  clusterIP: None
+  selector:
+    app: {{ .Release.Name }}-mysql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: {{ .Release.Name }}-mysql
+  name: {{ .Release.Name }}-mysql-read
+spec:
+  ports:
+  - name: "mysql"
+    port: {{ .Values.mysql.port }}
+  clusterIP: None
+  selector:
+    app: {{ .Release.Name }}-mysql

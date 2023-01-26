@@ -1,0 +1,77 @@
+apiVersion: v1
+entries:
+  kubernetes-dashboard:
+  - apiVersion: v1
+    created: "2023-01-22T17:51:36.7248176-05:00"
+    description: Kubernetes Dashboard
+    digest: 3832436eeb4288e97eaf5e5101e0faef0ef2bb666ba69f0d1d7de14965b0a131
+    icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+    name: kubernetes-dashboard
+    urls:
+    - kubernetes-dashboard-1.1.tgz
+    version: "1.1"
+  lets-encrypt:
+  - apiVersion: v1
+    created: "2023-01-22T17:51:36.7253225-05:00"
+    description: A nonprofit Certificate Authority providing TLS certificates to 200
+      million websites
+    digest: eb198af11865d8e1124267041ed179c3a77ec8b585f3e5c42f9fb1e2d499fd63
+    icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+    keywords:
+    - Solodev, SSL, AWS
+    name: lets-encrypt
+    urls:
+    - lets-encrypt-1.3.tgz
+    version: "1.3"
+  network:
+  - apiVersion: v1
+    created: "2023-01-22T17:51:36.7253751-05:00"
+    description: Network for Solodev Managed Kubernetes
+    digest: 472ff8af8217cf29e4d7ac61856768df3b2edb82fafad24d1bb945a9279a99fc
+    icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+    keywords:
+    - Solodev, Network, Cloud
+    name: network
+    urls:
+    - network-1.tgz
+    version: "1"
+  solodev-cms:
+  - apiVersion: v1
+    created: "2023-01-22T17:51:36.7264359-05:00"
+    description: Solodev CMS for AWS is a content management and customer experience
+      platform that lets your team work together on digital transformation. Build
+      amazing websites and apps, collaborate, review code, and publish ideas with
+      24/7 support – all powered by AWS.
+    digest: 01a24f00eb38e37f0f515015942ab2b8b8057f453a610b56c6fb0a262032bee3
+    icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+    keywords:
+    - Solodev, CM, AWS, Docker, Kubernetes
+    name: solodev-cms
+    urls:
+    - solodev-cms-10.tgz
+    version: "10"
+  solodev-network:
+  - apiVersion: v1
+    created: "2023-01-22T17:51:36.7264877-05:00"
+    description: Network for Solodev Managed Kubernetes
+    digest: cc7b53899b62150ea1b67b699c2c564e68ab022f260e211ed61c65078f7d937e
+    icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+    keywords:
+    - Solodev, Network, Cloud
+    name: solodev-network
+    urls:
+    - solodev-network-1.tgz
+    version: "1"
+  wordpress:
+  - apiVersion: v1
+    created: "2023-01-22T17:51:36.7270456-05:00"
+    description: Wordpress is a classic content management system.
+    digest: 2d1d58ab8a1de212c6b989a3fd098037e3a992d238b7310c9f1fff6a0db6de9b
+    icon: https://www.wordpress.com/_/images/wordpress-logo-red.jpg
+    keywords:
+    - Wordpress, CMS, AWS, Docker, Kubernetes
+    name: wordpress
+    urls:
+    - wordpress-5.4.tgz
+    version: "5.4"
+generated: "2023-01-22T17:51:36.724209-05:00"

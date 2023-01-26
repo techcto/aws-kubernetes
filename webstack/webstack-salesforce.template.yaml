@@ -84,8 +84,8 @@ Resources:
     Properties:
       ClusterID: !Ref ClusterName
       Namespace: !Ref Namespace
-      Repository: "https://raw.githubusercontent.com/techcto/charts/master"
-      Chart: charts/salesforce
+      Repository: "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts"
+      Chart: solodev/salesforce
       Name: !Ref AWS::StackName
       Version: 1.0
       ValueYaml: !Sub |

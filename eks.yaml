@@ -55,6 +55,8 @@ Metadata:
         default: Private subnet 3 ID
       VPCID:
         default: VPC ID
+      HttpProxy:
+        default: HTTP proxy
 Parameters:
   KeyPairName:
     Description: Name of an existing key pair, which allows you
@@ -186,7 +188,8 @@ Parameters:
     Default: ""
   KubernetesVersion:
     Type: String
-    Default: "1.21"
+    AllowedValues: ['1.23', '1.22', '1.21']
+    Default: '1.22'
   BastionRole:
     Type: String
     Default: ""
@@ -260,11 +263,45 @@ Parameters:
     AllowedValues: [ "Enabled", "Disabled" ]
     Default: "Enabled"
     Description: "Choose Enabled to enable Dashboard"
-  ProvisionAccessToken:
+  ProvisionNetwork:
     Type: String
     AllowedValues: [ "Enabled", "Disabled" ]
     Default: "Enabled"
     Description: "Choose Enabled to enable Token"
+  HttpProxy:
+    Type: String
+    Default: ""
+  
+  CloudClientId:
+    Type: String
+    Description: AWS Cognito App Id
+    Default: ""
+
+  CloudClientSecret:
+    Type: String
+    Description: AWS Cognito App Secret
+    Default: ""
+
+  CloudRedirectURI:
+    Type: String
+    Default: ""
+
+  CloudAuthorizeURL:
+    Type: String
+    Default: ""
+
+  CloudAccessToken:
+    Type: String
+    Default: ""
+
+  CloudKeySet:
+    Type: String
+    Default: ""
+
+  OIDCUrl:
+    Type: String
+    Description: "OIDC Url format: https://oidc.eks:<region>.amazonaws.com/id/<providerid>"
+    Default: ""
 
 Mappings:
   Config:
@@ -292,7 +329,8 @@ Conditions:
   EnableWeave: !Equals [!Ref 'ProvisionWeave', 'Enabled']
   AddUser: !Not [ !Equals [ !Ref AdditionalEKSAdminUserArn, "" ] ]
   AddRole: !Not [ !Equals [ !Ref AdditionalEKSAdminRoleArn, "" ] ]
-  EnableAccessToken: !Equals [!Ref 'ProvisionAccessToken', 'Enabled']
+  EnableNetwork: !Equals [!Ref 'ProvisionNetwork', 'Enabled']
+  NoProxy: !Equals [!Ref HttpProxy, '']
 
 Resources:
 
@@ -601,12 +639,18 @@ Resources:
   #============================================================================#
   # Web Stack
   #============================================================================#
-  
   EKSLambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for lambda to communicate with cluster API
       VpcId: !Ref VPCID
+  LambdaSGCleanup:
+    Type: Custom::LambdaSGCleanup
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-CleanupSecurityGroupDependencies', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      Region: !Ref "AWS::Region"
+      SecurityGroups:
+        - !Ref EKSLambdaSecurityGroup
   ClusterControlPlaneSecurityGroupIngress:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
@@ -616,6 +660,12 @@ Resources:
       IpProtocol: tcp
       ToPort: 443
       FromPort: 443
+  GetVpcCidr:
+    Type: Custom::CliQuery
+    Properties:
+      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      AwsCliCommand: !Sub "ec2 describe-vpcs --vpc-id ${VPCID} --query 'Vpcs[0].{CidrBlock:CidrBlock}'"
+      IdField: 'CidrBlock'
   GetKubectlLayerArn:
     DependsOn: SharedResources
     Type: Custom::CliQuery
@@ -646,8 +696,45 @@ Resources:
           lambda list-layer-versions --layer-name ${Prefix}-AwsCli --query 'max_by(LayerVersions, &Version)'
         - Prefix: !FindInMap [Config, Prefix, Value]
       IdField: 'LayerVersionArn'
+  # KubeResourceLambda:
+  #   DependsOn: [LambdaSGCleanup]
+  #   Type: AWS::Lambda::Function
+  #   Properties:
+  #     FunctionName: !Sub 'awsqs-resource-{AWS::StackName}'
+  #     Handler: awsqs_kubernetes_resource.utils.proxy_wrap
+  #     MemorySize: 256
+  #     Role: !GetAtt KubernetesAdminRole.Arn
+  #     Runtime: python3.8
+  #     Timeout: 900
+  #     Code:
+  #       S3Bucket: !Ref LambdaBucketName
+  #       S3Key: !Sub '${KeyPrefix}functions/packages/kubernetesResources/awsqs_kubernetes_apply_vpc.zip'
+  #     Environment:
+  #       Variables:
+  #         KUBECONFIG: /tmp/.kube/config
+  #         HTTPS_PROXY: !If [NoProxy, !Ref 'AWS::NoValue', !Ref HttpProxy]
+  #         HTTP_PROXY: !If [NoProxy, !Ref 'AWS::NoValue', !Ref HttpProxy]
+  #         NO_PROXY: !Sub '${GetVpcCidr},localhost,127.0.0.1,169.254.169.254,.internal'
+  #     VpcConfig:
+  #       SecurityGroupIds: [!Ref EKSLambdaSecurityGroup]
+  #       SubnetIds: !If
+  #         - EnablePublicSubnets
+  #         - !If
+  #           - 3AZDeployment
+  #           - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID, !Ref PublicSubnet3ID ]
+  #           - !If
+  #             - 2AZDeployment
+  #             - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID ]
+  #             - [ !Ref PrivateSubnet1ID, !Ref PublicSubnet1ID ]
+  #         - !If
+  #           - 3AZDeployment
+  #           - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]
+  #           - !If
+  #             - 2AZDeployment
+  #             - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]
+  #             - [ !Ref PrivateSubnet1ID ]
   WebStackLambda:
-    DependsOn: NodeGroupStack
+    DependsOn: GetAwsCliLayerArn
     Type: AWS::Lambda::Function
     Properties:
       Handler: lambda_function.lambda_handler
@@ -690,7 +777,14 @@ Resources:
         ProvisionNginxIngress: !Ref 'ProvisionNginxIngress'
         ProvisionExternalDNS: !Ref 'ProvisionExternalDNS'
         ProvisionDashboard: !Ref 'ProvisionDashboard'
-        ProvisionAccessToken: !Ref 'ProvisionAccessToken'
+        ProvisionNetwork: !Ref 'ProvisionNetwork'
+        CloudClientId: !Ref CloudClientId
+        CloudClientSecret: !Ref CloudClientSecret
+        CloudRedirectURI: !Ref CloudRedirectURI
+        CloudAuthorizeURL: !Ref CloudAuthorizeURL
+        CloudAccessToken: !Ref CloudAccessToken
+        CloudKeySet: !Ref CloudKeySet
+        OIDCUrl: !Ref OIDCUrl
 
 #============================================================================#
 # Outputs
@@ -717,6 +811,6 @@ Outputs:
   WebStackArn:
     Value: !GetAtt WebStackLambda.Arn
   AccessToken: 
-    Condition: EnableAccessToken
+    Condition: EnableNetwork
     Value: !GetAtt WebStack.Outputs.AccessToken
     Description: Return secure access token

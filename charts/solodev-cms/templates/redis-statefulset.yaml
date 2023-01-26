@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-redis
+spec:
+  serviceName: {{ .Release.Name }}-redis
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-redis
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-redis
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-redis
+            topologyKey: "kubernetes.io/hostname"
+      initContainers:
+      - name: {{ .Release.Name }}-init-redis
+        image: {{ .Values.redis.image.registry }}/{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}
+        command:
+        - bash
+        - "-c"
+        - |
+          [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+          ordinal=${BASH_REMATCH[1]}
+          if [[ $ordinal -eq 0 ]]; then
+            cp /mnt/config-map/master.conf /etc/redis.conf
+          else
+            cp /mnt/config-map/slave.conf /etc/redis.conf
+          fi
+        volumeMounts:
+        - name: conf
+          mountPath: /etc
+        - name: config-map
+          mountPath: /mnt/config-map
+      containers:
+      - name: {{ .Release.Name }}-redis
+        image: {{ .Values.redis.image.registry }}/{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}
+        command: ["redis-server"]
+        args: ["/etc/redis.conf"]
+        env:
+        - name: ALLOW_EMPTY_PASSWORD
+          value: "yes"
+        ports:
+        - name: redis
+          containerPort: {{ .Values.redis.port }}
+        volumeMounts:
+        - name:  {{ .Release.Name }}-db
+          mountPath: /data
+          subPath: redis
+        - name: conf
+          mountPath: /etc/
+        resources:
+          requests:
+            memory: 64M
+            cpu: 10m
+            # ephemeral-storage: 100M
+          limits:
+            memory: 256M
+            cpu: 40m
+            # ephemeral-storage: 500M
+      volumes:
+      - name: conf
+        emptyDir: {}
+      - name: config-map
+        configMap:
+          name: {{ .Release.Name }}-redis
+      - name:  {{ .Release.Name }}-db
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-client

@@ -1,0 +1,7 @@
+apiVersion: v1
+name: datadog
+version: 1.0
+description: Datadog container
+icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+keywords:
+  - Datadog, Network, Cloud

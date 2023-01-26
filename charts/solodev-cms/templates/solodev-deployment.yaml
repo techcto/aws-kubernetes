@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-solodev
+  labels:
+    app: {{ .Release.Name }}-solodev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-solodev
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-solodev
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      imagePullSecrets:
+      - name: {{ .Values.solodev.pullSecret }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-solodev
+            topologyKey: "kubernetes.io/hostname"
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ .Release.Name }}-redis
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: {{ .Release.Name }}-solodev
+        image: {{ .Values.solodev.image.registry }}/{{ .Values.solodev.image.repository }}:{{ .Values.solodev.image.tag }}
+        imagePullPolicy: Always
+        env:
+        - name: APP_DEBUG
+          value: {{ quote .Values.solodev.settings.debug }}
+        - name: APP_ENV
+          value: {{ quote .Values.env }}
+        - name: APP_SECRET
+          value: {{ quote .Values.solodev.settings.appSecret }}
+        - name: APP_URL
+          value: "{{ .Release.Name }}-solodev:{{ .Values.solodev.port }}"
+        - name: DB_HOST
+          value: {{ .Release.Name }}-{{ .Values.solodev.settings.dbHost }}
+        - name: DB_NAME
+          value: {{ quote .Values.solodev.settings.dbName }}
+        - name: DB_PASSWORD
+          value: {{ quote .Values.solodev.settings.dbPassword }}
+        - name: DB_USER
+          value: {{ quote .Values.solodev.settings.dbUser }}
+        - name: MONGO_HOST
+          value: "{{ .Release.Name }}-mongo:{{ .Values.mongo.port }}"
+        - name: REDIS_HOST
+          value: "{{ .Release.Name }}-redis:{{ .Values.redis.port }}"
+        - name: SOLODEV_PASSWORD
+          value: {{ quote .Values.solodev.settings.appPassword }}
+        - name: SOLODEV_USER
+          value: {{ quote .Values.solodev.settings.appUser }}
+        - name: SOLODEV_EMAIL
+          value: {{ quote .Values.solodev.settings.appEmail }}
+        - name: WEBSITE_URL
+          value: {{ quote .Values.solodev.settings.websiteUrl }}
+        - name: WEBSITE_THEME
+          value: {{ quote .Values.solodev.settings.websiteTheme }}
+        - name: WEBSITE_THEME_VALUES
+          value: {{ quote .Values.solodev.settings.websiteThemeValues }}
+        - name: CLOUD_CLIENT_ID
+          value: {{ quote .Values.solodev.settings.cloudClientId }}
+        - name: CLOUD_CLIENT_SECRET
+          value: {{ quote .Values.solodev.settings.cloudClientSecret }}
+        - name: CLOUD_REDIRECT_URI
+          value: {{ quote .Values.solodev.settings.cloudRedirectURI }}
+        - name: CLOUD_AUTHORIZE_URL
+          value: {{ quote .Values.solodev.settings.cloudAuthorizeURL }}
+        - name: CLOUD_ACCESS_TOKEN
+          value: {{ quote .Values.solodev.settings.cloudAccessToken }}
+        - name: CLOUD_KEY_SET
+          value: {{ quote .Values.solodev.settings.cloudKeySet }}
+        - name: CLOUD_SCOPE
+          value: {{ quote .Values.solodev.settings.cloudScope }}
+        - name: CLOUD_API_TOKEN
+          value: {{ quote .Values.solodev.settings.cloudApiToken }}
+        - name: CLOUD_RESOURCE_OWNER
+          value: {{ quote .Values.solodev.settings.cloudResourceOwner }}
+        ports:
+        - containerPort: {{ .Values.solodev.port }}
+        resources: {}
+        tty: true
+        volumeMounts:
+        - name: client
+          mountPath: {{ quote .Values.solodev.storage.mount }}
+          subPath: client
+        resources:
+          requests:
+            memory: 128M
+            cpu: 100m
+          limits:
+            memory: 1G
+            cpu: 1
+      restartPolicy: Always
+      volumes:
+      - name: client
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-client

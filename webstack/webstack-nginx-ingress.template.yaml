@@ -22,7 +22,6 @@ Resources:
 
   NginxIngress:
     Type: "AWSQS::Kubernetes::Helm"
-    Version: '1.0'
     Properties:
       ClusterID: !Ref ClusterName
       Namespace: ingress-nginx

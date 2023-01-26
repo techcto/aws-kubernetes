@@ -1,0 +1,39 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs
+provisioner: kubernetes.io/aws-ebs
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  fsType: ext4
+  type: gp2
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebsx
+provisioner: kubernetes.io/aws-ebs
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  fsType: xfs
+  type: gp2
+---
+apiVersion: storage.k8s.io/v1 
+kind: StorageClass
+metadata:
+  name: ebscsi 
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  fsType: ext4
+  type: gp2
+---
+apiVersion: storage.k8s.io/v1 
+kind: StorageClass
+metadata:
+  name: ebscsix
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  fsType: xfs
+  type: gp2

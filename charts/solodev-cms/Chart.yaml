@@ -1,0 +1,7 @@
+apiVersion: v1
+name: solodev-cms
+version: 10
+description: Solodev CMS for AWS is a content management and customer experience platform that lets your team work together on digital transformation. Build amazing websites and apps, collaborate, review code, and publish ideas with 24/7 support – all powered by AWS.
+icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+keywords:
+  - Solodev, CM, AWS, Docker, Kubernetes

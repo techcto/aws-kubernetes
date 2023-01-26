@@ -1,0 +1,78 @@
+env: prod
+storage:
+  className: gp2
+  size: 5G
+serviceAccountName: default
+solodev:
+  image:
+    registry: "709825985650.dkr.ecr.us-east-1.amazonaws.com"
+    repository: "solodev/aws-cms"
+    tag: 9.6.0
+    pullPolicy: IfNotPresent
+  clusterZone: domain.com
+  port: 9000
+  protocol: TCP
+  storage:
+    className: gp2
+    size: 5G
+    mount: /var/www/solodev/clients/solodev
+  settings:
+    debug: false
+    appSecret: secret
+    appUser: solodev
+    appPassword: password
+    appEmail: ''
+    dbHost: mysql
+    dbName: solodev
+    dbUser: solodev
+    dbPassword: password
+    mongoDbName: solodev_views
+    websiteUrl: ''
+    websiteTheme: ''
+    websiteThemeValues: ''
+    cloudClientId: ''
+    cloudClientSecret: ''
+    cloudRedirectURI: ''
+    cloudAuthorizeURL: ''
+    cloudAccessToken: ''
+    cloudKeySet: ''
+    cloudScope: ''
+    cloudApiToken: ''
+    cloudResourceOwner: ''
+ui:
+  image:
+    registry: "709825985650.dkr.ecr.us-east-1.amazonaws.com"
+    repository: "solodev/aws-cms-ui"
+    tag: 9.6.0
+  http:
+    port: 8080
+    protocol: TCP
+  https:
+    port: 443
+    protocol: TCP
+mysql:
+  image:
+    registry: docker.io
+    repository: mariadb
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 3306
+  read:
+    port: 3307
+mongo:
+  image:
+    registry: docker.io
+    repository: techcto/mongo
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 27017
+  settings:
+    username: solodev
+    password: password
+redis:
+  image:
+    registry: docker.io
+    repository: techcto/redis
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 6379

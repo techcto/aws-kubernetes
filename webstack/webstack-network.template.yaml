@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
-Description: "Obtains API token from an existing kubernetes cluster (qs-1qde66ffn)"
+Description: "Enable Solodev Network, Storage Class, and get API token from an existing kubernetes cluster (qs-1qde66ffn)"
 
 Metadata: 
 
@@ -23,16 +23,15 @@ Parameters:
 
 Resources:
 
-  AccessToken:
-    Type: "Custom::WebStack"
-    Version: '1.0'
+  Solodev:
+    Type: "AWS::CloudFormation::CustomResource"
     Properties:
       ServiceToken: !Ref WebStackArn
       ClusterName: !Ref ClusterName
-      AccessToken:
+      Solodev:
         Enable: "true"
 
 Outputs:
   AccessToken: 
-    Value: !GetAtt AccessToken.Token
+    Value: !GetAtt Solodev.Token
     Description: Return secure access token

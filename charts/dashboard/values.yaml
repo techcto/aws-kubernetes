@@ -1,0 +1,16 @@
+env: prod
+provider:
+  port: 8080
+  type: oidc
+#   domain: "domain.com"
+#   displayname: "OAuth2 SSO"
+#   httpaddress: 0.0.0.0:4190
+#   cookiesecure: false
+#   cookiesecret: PdowVuSyC6FocrE_CLm02A==
+#   clientid:
+#   clientsecret:
+#   oidcissuerurl:
+#   redirecturl:
+#   loginurl:
+#   redeemurl:
+#   oidcjwksurl:

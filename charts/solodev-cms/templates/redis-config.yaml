@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    app: {{ .Release.Name }}-redis
+data:
+  master.conf: |
+    bind 0.0.0.0
+    protected-mode yes
+    port {{ .Values.redis.port }}
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+    daemonize no
+    supervised no
+    pidfile /var/run/redis_{{ .Values.redis.port }}.pid
+    loglevel notice
+    logfile ""
+  slave.conf: |
+    slaveof {{ .Release.Name }}-redis-0.{{ .Release.Name }}-redis {{ .Values.redis.port }}

@@ -17,21 +17,21 @@ aws s3 cp webstack.yaml s3://solodev-kubernetes/cloudformation/webstack.yaml --a
 aws s3 sync webstack s3://solodev-kubernetes/cloudformation/webstack --delete
 aws s3 sync functions/packages s3://solodev-kubernetes/cloudformation/functions/packages --delete
 
-# echo "Create Solodev EKS Cluster"
-# aws cloudformation create-stack --disable-rollback --stack-name tmp-kube-${DATE} --disable-rollback --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-#     --parameters file://bin/eks.json \
-#     --template-url https://s3.amazonaws.com/solodev-kubernetes/cloudformation/eks.yaml
+echo "Create Solodev EKS Cluster"
+aws cloudformation create-stack --disable-rollback --stack-name tmp-kube-${DATE} --disable-rollback --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+    --parameters file://bin/eks.json \
+    --template-url https://s3.amazonaws.com/solodev-kubernetes/cloudformation/eks.yaml
 
 # echo "Create Webstack"
 # aws cloudformation create-stack --disable-rollback --stack-name tmp-webstack-${DATE} --disable-rollback --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
 #     --parameters file://bin/webstack.json \
 #     --template-url https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
 
-echo "Create Dashboard"
-# export AWS_PROFILE=cloud
-aws cloudformation create-stack --disable-rollback --stack-name tmp-dash-${DATE} --disable-rollback --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-    --parameters file://bin/dashboard.json \
-    --template-url https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
+# echo "Create Dashboard"
+# # export AWS_PROFILE=cloud
+# aws cloudformation create-stack --disable-rollback --stack-name tmp-dash-${DATE} --disable-rollback --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+#     --parameters file://bin/dashboard.json \
+#     --template-url https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
 
 # echo "Create Network"
 # aws cloudformation create-stack --disable-rollback --stack-name tmp-net-${DATE} --disable-rollback --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \

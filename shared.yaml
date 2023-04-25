@@ -1,77 +1,121 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: Deploys AWS Quickstart Shared Resources for EKS
-
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Checks for Shared resources required by all Amazon EKS Quick Start stacks
+  (qs-1tsp403dd).
+Metadata:
+  cfn-lint: { config: { ignore_checks: [W9002, W9003, W9004, W9006] } }
 Parameters:
   QSS3BucketName:
-    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
-    ConstraintDescription: Quick Start bucket name can include numbers, lowercase
-      letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
-      (-).
+    Type: String
+    Description: >-
+      S3 bucket name for the Quick Start assets. This string can include
+      numbers, lowercase letters, and hyphens (-). It cannot start or end with
+      a hyphen (-).
+    AllowedPattern: ^[0-9a-z]+([0-9a-z-]*[0-9a-z])*$
+    ConstraintDescription: >-
+      Quick Start bucket name can include numbers, lowercase letters, and
+      hyphens (-). It cannot start or end with a hyphen (-).
     Default: aws-quickstart
-    Description: S3 bucket name for the Quick Start assets. This string can include
-      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start
-      or end with a hyphen (-).
-    Type: String
   QSS3KeyPrefix:
+    Type: String
+    Description: >-
+      S3 key prefix for the Quick Start assets. Quick Start key prefix can
+      include numbers, lowercase letters, uppercase letters, hyphens (-),
+      periods (.) and forward slash (/).
     AllowedPattern: ^[0-9a-zA-Z-/.]*$
-    ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters,
-      uppercase letters, hyphens (-), periods (.) and forward slash (/).
+    ConstraintDescription: >-
+      Quick Start key prefix can include numbers, lowercase letters, uppercase
+      letters, hyphens (-), periods (.) and forward slash (/).
     Default: quickstart-amazon-eks/
-    Description: S3 key prefix for the Quick Start assets. Quick Start key prefix
-      can include numbers, lowercase letters, uppercase letters, hyphens (-), periods (.) and
-      forward slash (/).
-    Type: String
   QSS3BucketRegion:
-    Default: 'us-east-1'
-    Description: Region where the Quick Start S3 bucket (QSS3BucketName) is
-      hosted. When using your own bucket, you must specify this value.
     Type: String
+    Description: >-
+      Region where the Quick Start S3 bucket (QSS3BucketName) is hosted. When
+      using your own bucket, you must specify this value.
+    Default: us-east-1
+  ConfigSetName:
+    Type: String
+    Description: >-
+      (Optional) Name used to map advanced parameters to an EKS cluster. If you
+      launched an advanced configuration stack and would like to apply it's
+      values to this cluster, this name must match the "Config set name"
+      parameter in that stack. If left blank, a new config set is created using
+      default values.
+    Default: ''
   PerAccountSharedResources:
     Type: String
-    AllowedValues: ['AutoDetect', 'Yes', 'No']
-    Default: 'AutoDetect'
-    Description: Choose "No" if you already deployed another EKS Quick Start stack in your AWS account.
+    Description: >-
+      Choose "No" if you already deployed another EKS Quick Start stack in your
+      AWS account.
+    AllowedValues: [AutoDetect, 'Yes', 'No']
+    Default: AutoDetect
   PerRegionSharedResources:
     Type: String
-    AllowedValues: ['AutoDetect', 'Yes', 'No']
-    Default: 'AutoDetect'
-    Description: Choose "No" if you already deployed another EKS Quick Start stack in your Region.
-
-Mappings:
-  Config:
-    Prefix: { Value: 'eks-quickstart' }
-
+    Description: >-
+      Choose "No" if you already deployed another EKS Quick Start stack in your
+      Region.
+    AllowedValues: [AutoDetect, 'Yes', 'No']
+    Default: AutoDetect
+  KubernetesVersion:
+  # https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html#kubernetes-release-calendar
+    Type: String
+    Description: >-
+      (Optional) Kubernetes control plane version. If ConfigSetName is set,
+      this value will be ignored and the Kubernetes version specified in the
+      advanced configuration template (including the default) will be used.
+    AllowedValues: [1.24, 1.23, 1.22]
+    Default: 1.24
+  OnDemandPercentage:
+    Type: Number
+    Description: >-
+      (Optional) Only applies if the NodeGroupType parameter is set to
+      "Unmanaged". Set the percentage of on-demand instances and spot
+      instances. With a default of 100, the percentages are 100% for on-demand
+      instances and 0% for spot instances. Additionally, if ConfigSetName is
+      set, this value will be ignored. The on-demand percentage value specified
+      in the advanced configuration template (including the default) will be
+      used.
+    MinValue: 0
+    MaxValue: 100
+    Default: 100
+  OnDemandBastionPercentage:
+    Type: Number
+    Description: >-
+      Set the percentage of on-demand instances and spot instances. With a
+      default of 100, the percentages are 100% for on-demand instances and 0%
+      for spot instances.
+    MinValue: 0
+    MaxValue: 100
+    Default: 100
+  NodeGroupOS:
+    Type: String
+    Description: >-
+      Operating system to use for node instances. Note that if you choose
+      "Windows", an additional Amazon Linux node group is created.
+    AllowedValues: [Amazon Linux 2, Bottlerocket, Windows]
+    Default: Amazon Linux 2
 Conditions:
   DetectSharedStacks: !And
-    - !Equals [!Ref PerAccountSharedResources, 'AutoDetect']
-    - !Equals [!Ref PerRegionSharedResources, 'AutoDetect']
-  UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-quickstart']
+    - !Equals [!Ref PerAccountSharedResources, AutoDetect]
+    - !Equals [!Ref PerRegionSharedResources, AutoDetect]
+  UsingDefaultBucket: !Equals [!Ref QSS3BucketName, aws-quickstart]
+  CreateAdvancedConfigWithDefaults: !Equals [!Ref ConfigSetName, '']
   CreatePerAccountSharedResources: !Equals [!Ref PerAccountSharedResources, 'Yes']
   CreatePerRegionSharedResources: !Equals [!Ref PerRegionSharedResources, 'Yes']
-
+  WindowsNodes: !Equals [!Ref NodeGroupOS, Windows]
 Resources:
-  
-  #============================================================================#
-  # Shared Resources
-  #============================================================================#
   AutoDetectSharedResources:
     Type: AWS::CloudFormation::Stack
     Condition: DetectSharedStacks
     Properties:
       TemplateURL: !Sub
-        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-prerequisites.template.yaml'
-        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/workloads/amazon-eks-prerequisites.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref AWS::Region, !Ref QSS3BucketRegion]
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
       Parameters:
-        Version: "1.0.0"
-        AccountTemplateUri: !Sub
-          - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-per-account-resources.template.yaml'
-          - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
-            S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
-        RegionalTemplateUri: !Sub
-          - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-per-region-resources.template.yaml'
-          - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
-            S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+        QSS3BucketName: !Ref QSS3BucketName
+        QSS3BucketRegion: !Ref QSS3BucketRegion
+        QSS3KeyPrefix: !Ref QSS3KeyPrefix
   AccountSharedResources:
     Type: AWS::CloudFormation::Stack
     Condition: CreatePerAccountSharedResources
@@ -79,23 +123,39 @@ Resources:
     Metadata: { cfn-lint: { config: { ignore_checks: [W3011] } } }
     Properties:
       TemplateURL: !Sub
-        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-per-account-resources.template.yaml'
-        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-per-account-resources.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref AWS::Region, !Ref QSS3BucketRegion]
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
-      Tags: [{Key: !FindInMap [Config, Prefix, Value], Value: AccountSharedResources}]
+      Tags: [{ Key: eks-quickstart, Value: AccountSharedResources }]
   RegionalSharedResources:
     Type: AWS::CloudFormation::Stack
     Condition: CreatePerRegionSharedResources
     DeletionPolicy: Retain
     Metadata:
-      cfn-lint: { config: { ignore_checks: [W3011, W9901] } }
-      DependsOn: !If [CreatePerAccountSharedResources, !Ref AccountSharedResources, !Ref 'AWS::NoValue']
+      cfn-lint: { config: { ignore_checks: [W3011] } }
+      DependsOn: !If [CreatePerAccountSharedResources, !Ref AccountSharedResources, !Ref AWS::NoValue]
     Properties:
       TemplateURL: !Sub
-        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-per-region-resources.template.yaml'
-        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-per-region-resources.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref AWS::Region, !Ref QSS3BucketRegion]
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
       Parameters:
         QSS3BucketName: !Ref QSS3BucketName
         QSS3KeyPrefix: !Ref QSS3KeyPrefix
-      Tags: [{Key: !FindInMap [Config, Prefix, Value], Value: RegionalSharedResources}]
+      Tags: [{ Key: eks-quickstart, Value: RegionalSharedResources }]
+  AdvancedConfigDefaultsStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateAdvancedConfigWithDefaults
+    Metadata: { cfn-lint: { config: { ignore_checks: [E9902, W9901] } } }
+    Properties:
+      TemplateURL: !Sub
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-advanced-configuration.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref AWS::Region, !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        ConfigSetName: !Ref AWS::StackName
+        KubernetesVersion: !Ref KubernetesVersion
+        NodeVolumeSize: !If [WindowsNodes, 50, !Ref AWS::NoValue]
+        AmiRootVolumeDeviceName: !If [WindowsNodes, /dev/sda1, !Ref AWS::NoValue]
+        OnDemandPercentage: !Ref OnDemandPercentage
+        OnDemandBastionPercentage: !Ref OnDemandBastionPercentage

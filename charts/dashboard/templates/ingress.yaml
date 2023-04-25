@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: "https://$host/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://$host/oauth2/start?rd=$escaped_request_uri"
+    host: "{{ .Release.Name }}.{{ .Values.provider.domain }}"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  name: external-auth-oauth2
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: {{ .Release.Name }}.{{ .Values.provider.domain }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kubernetes-dashboard
+            port:
+              number: 80    
+  tls:
+  - hosts:
+    - {{ .Release.Name }}.{{ .Values.provider.domain }}
+    secretName: {{ .Release.Name }}-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oauth2-proxy
+  annotations:
+    host: "{{ .Release.Name }}.{{ .Values.provider.domain }}"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: {{ .Release.Name }}.{{ .Values.provider.domain }}
+    http:
+      paths:
+      - path: /oauth2
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-proxy
+            port:
+              number: 4180
+  tls:
+  - hosts:
+    - {{ .Release.Name }}.{{ .Values.provider.domain }}
+    secretName: {{ .Release.Name }}-tls

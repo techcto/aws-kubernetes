@@ -1,16 +1,16 @@
 env: prod
 provider:
-  port: 8080
+  port: 443
   type: oidc
-#   domain: "domain.com"
-#   displayname: "OAuth2 SSO"
-#   httpaddress: 0.0.0.0:4190
-#   cookiesecure: false
-#   cookiesecret: PdowVuSyC6FocrE_CLm02A==
-#   clientid:
-#   clientsecret:
-#   oidcissuerurl:
-#   redirecturl:
-#   loginurl:
-#   redeemurl:
-#   oidcjwksurl:
+  domain: "domain.com"
+  displayname: "OAuth2 SSO"
+  cookiesecure: false
+  cookiesecret: PdowVuSyC6FocrE_CLm02A==
+  clientid:
+  clientsecret:
+  oidcissuerurl:
+  redirecturl:
+  loginurl:
+  redeemurl:
+  oidcjwksurl:
+  scope: openid profile:read email:read

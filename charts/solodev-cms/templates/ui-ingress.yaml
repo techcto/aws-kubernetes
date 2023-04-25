@@ -34,8 +34,11 @@ spec:
   - host: {{ .Release.Name }}.{{ .Values.solodev.clusterZone }}
     http:
       paths:
-        - path: /
+      - path: /
+          pathType: Prefix
           backend:
-            serviceName: {{ .Release.Name }}-ui
-            servicePort: {{ .Values.ui.http.port }}
+            service:
+              name: {{ .Release.Name }}-ui
+              port:
+                number: {{ .Values.ui.http.port }}
 

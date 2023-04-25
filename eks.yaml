@@ -298,9 +298,13 @@ Parameters:
     Type: String
     Default: ""
 
-  OIDCUrl:
+  CloudScope:
     Type: String
-    Description: "OIDC Url format: https://oidc.eks:<region>.amazonaws.com/id/<providerid>"
+    Default: 'openid profile:read email:read'
+
+  ClusterZone:
+    Description: This is the DNS Zone that for a single cluster
+    Type: String
     Default: ""
 
 Mappings:
@@ -330,6 +334,7 @@ Conditions:
   AddUser: !Not [ !Equals [ !Ref AdditionalEKSAdminUserArn, "" ] ]
   AddRole: !Not [ !Equals [ !Ref AdditionalEKSAdminRoleArn, "" ] ]
   EnableNetwork: !Equals [!Ref 'ProvisionNetwork', 'Enabled']
+  EnableDashboard: !Equals [!Ref 'ProvisionDashboard', 'Enabled']
   NoProxy: !Equals [!Ref HttpProxy, '']
 
 Resources:
@@ -338,10 +343,10 @@ Resources:
   # Shared Resources
   #============================================================================#
 
-  SharedResources:
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/shared.yaml
+  # SharedResources:
+  #   Type: AWS::CloudFormation::Stack
+  #   Properties:
+  #     TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/shared.yaml
 
   #============================================================================#
   # Controlplane Security
@@ -355,12 +360,10 @@ Resources:
       SecurityGroupId: !GetAtt ControlPlaneSecurityGroup.GroupId
   CleanupControlPlaneSecurityGroupDependencies:
     Type: Custom::LambdaSGCleanup
-    DependsOn: SharedResources
     Properties:
       ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-CleanupSecurityGroupDependencies', {Prefix: !FindInMap [Config, Prefix, Value]}]
       Region: !Ref "AWS::Region"
-      SecurityGroups:
-        - !GetAtt ControlPlaneSecurityGroup.GroupId
+      SecurityGroupId: !GetAtt ControlPlaneSecurityGroup.GroupId
   ControlPlaneSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -493,7 +496,6 @@ Resources:
 
   ControlPlane:
     Type: "AWSQS::EKS::Cluster"
-    DependsOn: SharedResources
     Properties:
       Name: !Ref AWS::StackName
       ResourcesVpcConfig:
@@ -587,6 +589,7 @@ Resources:
     Type: Custom::GetCallerArn
     Properties:
       ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-GetCallerArn', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      ClusterName: !Ref AWS::StackName
   ClusterOIDCProvider:
     Condition: EnableIamOidcProvider
     Type: AWS::IAM::OIDCProvider
@@ -639,110 +642,62 @@ Resources:
   #============================================================================#
   # Web Stack
   #============================================================================#
+  CleanupLambdaSecurityGroupDependencies:
+    Type: Custom::CleanupSecurityGroupDependencies
+    Properties:
+      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-CleanupSecurityGroupDependencies
+      Region: !Ref AWS::Region
+      SecurityGroups: [!Ref EKSLambdaSecurityGroup]
   EKSLambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for lambda to communicate with cluster API
+      GroupDescription: >-
+        Security group for lambda to communicate with cluster API.
       VpcId: !Ref VPCID
-  LambdaSGCleanup:
-    Type: Custom::LambdaSGCleanup
-    Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-CleanupSecurityGroupDependencies', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      Region: !Ref "AWS::Region"
-      SecurityGroups:
-        - !Ref EKSLambdaSecurityGroup
   ClusterControlPlaneSecurityGroupIngress:
     Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: [CleanupLambdaSecurityGroupDependencies]
     Properties:
-      Description: Allow lambda to communicate with the cluster API Server
+      Description: Allow lambda to communicate with the cluster API Server.
       GroupId: !Ref ControlPlaneSecurityGroup
       SourceSecurityGroupId: !Ref EKSLambdaSecurityGroup
       IpProtocol: tcp
       ToPort: 443
       FromPort: 443
   GetVpcCidr:
-    Type: Custom::CliQuery
+    Type: Custom::ResourceReader
     Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      AwsCliCommand: !Sub "ec2 describe-vpcs --vpc-id ${VPCID} --query 'Vpcs[0].{CidrBlock:CidrBlock}'"
-      IdField: 'CidrBlock'
+      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
+      AwsCliCommand: !Sub ec2 describe-vpcs --vpc-id ${VPCID} --query 'Vpcs[0].{CidrBlock:CidrBlock}'
+      IdField: CidrBlock
   GetKubectlLayerArn:
-    DependsOn: SharedResources
-    Type: Custom::CliQuery
+    Type: Custom::ResourceReader
     Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      AwsCliCommand: !Sub
-        - |
-          lambda list-layer-versions --layer-name ${Prefix}-Kubectl --query 'max_by(LayerVersions, &Version)'
-        - Prefix: !FindInMap [Config, Prefix, Value]
-      IdField: 'LayerVersionArn'
-  GetCrhelperLayerArn:
-    DependsOn: SharedResources
-    Type: Custom::CliQuery
+      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
+      AwsCliCommand: lambda list-layer-versions --layer-name eks-quickstart-Kubectl --query 'max_by(LayerVersions, &Version)'
+      IdField: LayerVersionArn
+  GetCrHelperLayerArn:
+    Type: Custom::ResourceReader
     Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      AwsCliCommand: !Sub
-        - |
-          lambda list-layer-versions --layer-name ${Prefix}-Crhelper --query 'max_by(LayerVersions, &Version)'
-        - Prefix: !FindInMap [Config, Prefix, Value]
-      IdField: 'LayerVersionArn'
+      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
+      AwsCliCommand: lambda list-layer-versions --layer-name eks-quickstart-CrHelper --query 'max_by(LayerVersions, &Version)'
+      IdField: LayerVersionArn
   GetAwsCliLayerArn:
-    DependsOn: SharedResources
-    Type: Custom::CliQuery
+    Type: Custom::ResourceReader
     Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-ResourceReader', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      AwsCliCommand: !Sub
-        - |
-          lambda list-layer-versions --layer-name ${Prefix}-AwsCli --query 'max_by(LayerVersions, &Version)'
-        - Prefix: !FindInMap [Config, Prefix, Value]
-      IdField: 'LayerVersionArn'
-  # KubeResourceLambda:
-  #   DependsOn: [LambdaSGCleanup]
-  #   Type: AWS::Lambda::Function
-  #   Properties:
-  #     FunctionName: !Sub 'awsqs-resource-{AWS::StackName}'
-  #     Handler: awsqs_kubernetes_resource.utils.proxy_wrap
-  #     MemorySize: 256
-  #     Role: !GetAtt KubernetesAdminRole.Arn
-  #     Runtime: python3.8
-  #     Timeout: 900
-  #     Code:
-  #       S3Bucket: !Ref LambdaBucketName
-  #       S3Key: !Sub '${KeyPrefix}functions/packages/kubernetesResources/awsqs_kubernetes_apply_vpc.zip'
-  #     Environment:
-  #       Variables:
-  #         KUBECONFIG: /tmp/.kube/config
-  #         HTTPS_PROXY: !If [NoProxy, !Ref 'AWS::NoValue', !Ref HttpProxy]
-  #         HTTP_PROXY: !If [NoProxy, !Ref 'AWS::NoValue', !Ref HttpProxy]
-  #         NO_PROXY: !Sub '${GetVpcCidr},localhost,127.0.0.1,169.254.169.254,.internal'
-  #     VpcConfig:
-  #       SecurityGroupIds: [!Ref EKSLambdaSecurityGroup]
-  #       SubnetIds: !If
-  #         - EnablePublicSubnets
-  #         - !If
-  #           - 3AZDeployment
-  #           - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID, !Ref PublicSubnet3ID ]
-  #           - !If
-  #             - 2AZDeployment
-  #             - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID ]
-  #             - [ !Ref PrivateSubnet1ID, !Ref PublicSubnet1ID ]
-  #         - !If
-  #           - 3AZDeployment
-  #           - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]
-  #           - !If
-  #             - 2AZDeployment
-  #             - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]
-  #             - [ !Ref PrivateSubnet1ID ]
+      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
+      AwsCliCommand: lambda list-layer-versions --layer-name eks-quickstart-AwsCli --query 'max_by(LayerVersions, &Version)'
+      IdField: LayerVersionArn
   WebStackLambda:
-    DependsOn: GetAwsCliLayerArn
+    DependsOn: LoadBalancerStack
     Type: AWS::Lambda::Function
     Properties:
       Handler: lambda_function.lambda_handler
       MemorySize: 256
       Role: !GetAtt KubernetesAdminRole.Arn
-      Runtime: python3.7
+      Runtime: python3.8
       Timeout: 900
-      Layers: [!Ref GetKubectlLayerArn, !Ref GetCrhelperLayerArn, !Ref GetAwsCliLayerArn]
+      Layers: [!Ref GetKubectlLayerArn, !Ref GetCrHelperLayerArn, !Ref GetAwsCliLayerArn]
       Code:
         S3Bucket: !Ref LambdaBucketName
         S3Key: !Sub '${KeyPrefix}functions/packages/WebStack/lambda.zip'
@@ -772,19 +727,31 @@ Resources:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
       Parameters:
         ClusterName: !Ref AWS::StackName
+        ClusterZone: !Ref ClusterZone
         WebStackArn: !GetAtt WebStackLambda.Arn
         AdminEmail: !Ref AdminEmail
         ProvisionNginxIngress: !Ref 'ProvisionNginxIngress'
         ProvisionExternalDNS: !Ref 'ProvisionExternalDNS'
         ProvisionDashboard: !Ref 'ProvisionDashboard'
         ProvisionNetwork: !Ref 'ProvisionNetwork'
+
+  DashboardStack:
+    Condition: EnableDashboard
+    DependsOn: WebStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
+      Parameters:
+        ClusterName: !Ref AWS::StackName
+        ClusterZone: !Ref ClusterZone
         CloudClientId: !Ref CloudClientId
         CloudClientSecret: !Ref CloudClientSecret
         CloudRedirectURI: !Ref CloudRedirectURI
         CloudAuthorizeURL: !Ref CloudAuthorizeURL
         CloudAccessToken: !Ref CloudAccessToken
         CloudKeySet: !Ref CloudKeySet
-        OIDCUrl: !Ref OIDCUrl
+        CloudKeySet: !Ref CloudScope
+        OIDCUrl: !GetAtt ControlPlane.OIDCIssuerURL
 
 #============================================================================#
 # Outputs
@@ -811,6 +778,5 @@ Outputs:
   WebStackArn:
     Value: !GetAtt WebStackLambda.Arn
   AccessToken: 
-    Condition: EnableNetwork
+    Condition: EnableDashboard
     Value: !GetAtt WebStack.Outputs.AccessToken
-    Description: Return secure access token

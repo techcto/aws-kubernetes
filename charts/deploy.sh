@@ -5,7 +5,6 @@ helm package network
 helm package dashboard
 helm package lets-encrypt
 helm package solodev-cms
-helm package wordpress
 helm repo index .
 helm repo update
 

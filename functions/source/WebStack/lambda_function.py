@@ -3,10 +3,14 @@ import logging
 import boto3
 import subprocess
 import shlex
+import time
+import math
+from hashlib import md5
+
 from crhelper import CfnResource
 
 logger = logging.getLogger(__name__)
-helper = CfnResource(json_logging=True, log_level='DEBUG')
+helper = CfnResource(json_logging=True, log_level="DEBUG")
 
 try:
     s3_client = boto3.client('s3')
@@ -15,19 +19,27 @@ try:
 except Exception as init_exception:
     helper.init_failure(init_exception)
 
-
 def run_command(command):
     try:
-        print("executing command: %s" % command)
-        output = subprocess.check_output(shlex.split(command), stderr=subprocess.STDOUT).decode("utf-8")
-        print(output)
-    except subprocess.CalledProcessError as exc:
-        print("Command failed with exit code %s, stderr: %s" % (exc.returncode, exc.output.decode("utf-8")))
-        raise Exception(exc.output.decode("utf-8"))
+        logger.info(f"executing command: {command}")
+        output = subprocess.check_output(  # nosec B603
+            shlex.split(command), stderr=subprocess.STDOUT
+        ).decode("utf-8")
+        logger.info(output)
+    except subprocess.CalledProcessError as e:
+        logger.exception(
+            "Command failed with exit code %s, stderr: %s"
+            % (e.returncode, e.output.decode("utf-8"))
+        )
+        raise Exception(e.output.decode("utf-8"))
+
     return output
 
+
 def create_kubeconfig(cluster_name):
-    run_command(f"aws eks update-kubeconfig --name {cluster_name} --alias {cluster_name}")
+    run_command(
+        f"aws eks update-kubeconfig --name {cluster_name} --alias {cluster_name}"
+    )
     run_command(f"kubectl config use-context {cluster_name}")
 
 def enable_weave():
@@ -113,22 +125,50 @@ def enable_solodev():
     TOKEN = run_command("kubectl get secrets -n kube-system -o jsonpath=\"{.items[?(@.metadata.annotations['kubernetes\.io/service-account\.name']=='solodev-admin')].data.token}\"")
     helper.Data['Token'] = TOKEN
 
-
 @helper.create
 @helper.update
-def create_handler(event, _):
-    print('Received event: %s' % json.dumps(event))
-    create_kubeconfig(event['ResourceProperties']['ClusterName'])
-    if 'Weave' in event['ResourceProperties'].keys():
-        enable_weave()
-    if 'Marketplace' in event['ResourceProperties'].keys():
-        enable_marketplace(event['ResourceProperties']['ClusterName'], event['ResourceProperties']['Namespace'], event['ResourceProperties']['ServiceRoleName'])
-    if 'Solodev' in event['ResourceProperties'].keys():
-        enable_solodev()
+def create_handler(event, context):
+    create_kubeconfig(event["ResourceProperties"]["ClusterName"])
 
-@helper.delete
-def no_op(_, __):
-    pass
+    interval = 5
+    retry_timeout = (
+        math.floor(context.get_remaining_time_in_millis() / interval / 1000) - 1
+    )
+
+    while True:
+        try:
+            outp = "Init Solodev"
+            if 'Weave' in event['ResourceProperties'].keys():
+                enable_weave()
+            if 'Marketplace' in event['ResourceProperties'].keys():
+                enable_marketplace(event['ResourceProperties']['ClusterName'], event['ResourceProperties']['Namespace'], event['ResourceProperties']['ServiceRoleName'])
+            if 'Solodev' in event['ResourceProperties'].keys():
+                enable_solodev()
+            break
+        except Exception:
+            if retry_timeout < 1:
+                message = "Out of retries"
+                logger.error(message)
+                raise RuntimeError(message)
+            else:
+                logger.info("Retrying until timeout...")
+
+                time.sleep(interval)
+                retry_timeout = retry_timeout - interval
+
+    response_data = {"id": ""}
+
+    if "ResponseKey" in event["ResourceProperties"]:
+        response_data[event["ResourceProperties"]["ResponseKey"]] = outp
+    if len(outp.encode("utf-8")) > 1000:
+        outp_utf8 = outp.encode("utf-8")
+        md5_digest = md5(outp_utf8).hexdigest()  # nosec B324, B303
+        outp = "MD5-" + str(md5_digest)
+    helper.Data.update(response_data)
+    return outp
 
 def lambda_handler(event, context):
+    props = event.get("ResourceProperties", {})
+    logger.setLevel(props.get("LogLevel", logging.INFO))
+    logger.debug(json.dumps(event))
     helper(event, context)

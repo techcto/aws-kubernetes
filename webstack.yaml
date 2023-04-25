@@ -32,29 +32,10 @@ Parameters:
     AllowedValues: [ "Enabled", "Disabled" ]
     Default: "Enabled"
     Description: "Choose Enabled to enable Token"
-  CloudClientId:
-    Type: String
-    Description: AWS Cognito App Id
-    Default: ""
-  CloudClientSecret:
-    Type: String
-    Description: AWS Cognito App Secret
-    Default: ""
-  CloudRedirectURI:
+  ClusterZone:
+    Description: This is the DNS Zone that for a single cluster
     Type: String
     Default: ""
-  CloudAuthorizeURL:
-    Type: String
-    Default: ""
-  CloudAccessToken:
-    Type: String
-    Default: ""
-  CloudKeySet:
-    Type: String
-    Default: ""
-  OIDCUrl:
-    Type: String
-    Description: "OIDC Url format: https://oidc.eks:<region>.amazonaws.com/id/<providerid>"
 
 Conditions:
   EnableNginxIngress: !Equals [!Ref 'ProvisionNginxIngress', 'Enabled']
@@ -74,21 +55,6 @@ Resources:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-external-dns.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
-  DashboardStack:
-    DependsOn: ExternalDNSStack
-    Condition: EnableDashboard
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
-      Parameters:
-        ClusterName: !Ref ClusterName
-        CloudClientId: !Ref CloudClientId
-        CloudClientSecret: !Ref CloudClientSecret
-        CloudRedirectURI: !Ref CloudRedirectURI
-        CloudAuthorizeURL: !Ref CloudAuthorizeURL
-        CloudAccessToken: !Ref CloudAccessToken
-        CloudKeySet: !Ref CloudKeySet
-        OIDCUrl: !Ref OIDCUrl
   NginxIngressStack:
     DependsOn: ExternalDNSStack
     Condition: EnableNginxIngress
@@ -106,8 +72,8 @@ Resources:
         ClusterName: !Ref ClusterName
         AdminEmail: !Ref AdminEmail
   NetworkStack:
-    DependsOn: DashboardStack
     Condition: EnableNetwork
+    DependsOn: LetsEncryptStack
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-network.template.yaml

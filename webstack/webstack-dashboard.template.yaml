@@ -24,6 +24,7 @@ Metadata:
           - CloudAuthorizeURL
           - CloudAccessToken
           - CloudKeySet
+          - CloudScope
 
 Parameters:
 
@@ -32,7 +33,7 @@ Parameters:
 
   Namespace:
     Type: String
-    Default: "solodev"
+    Default: "kubernetes-dashboard"
 
   ClusterZone:
     Description: This is the DNS Zone that for a single cluster
@@ -56,7 +57,7 @@ Parameters:
 
   CloudRedirectURI:
     Type: String
-    Default: ''
+    Default: '/oauth2/callback'
 
   CloudAuthorizeURL:
     Type: String
@@ -69,6 +70,10 @@ Parameters:
   CloudKeySet:
     Type: String
     Default: ''
+
+  CloudScope:
+    Type: String
+    Default: 'openid profile:read email:read'
 
 Resources:
 
@@ -89,6 +94,7 @@ Resources:
           loginurl: ${CloudAuthorizeURL}
           redeemurl: ${CloudAccessToken}
           oidcjwksurl: ${CloudKeySet}
+          scope: ${CloudScope}
           oidcissuerurl: ${OIDCUrl}
           domain: ${ClusterZone}
 

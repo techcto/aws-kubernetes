@@ -695,7 +695,7 @@ Resources:
       Handler: lambda_function.lambda_handler
       MemorySize: 256
       Role: !GetAtt KubernetesAdminRole.Arn
-      Runtime: python3.8
+      Runtime: python3.9
       Timeout: 900
       Layers: [!Ref GetKubectlLayerArn, !Ref GetCrHelperLayerArn, !Ref GetAwsCliLayerArn]
       Code:

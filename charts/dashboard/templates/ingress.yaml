@@ -1,12 +1,17 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: external-auth-oauth2
   annotations:
     nginx.ingress.kubernetes.io/auth-url: "https://$host/oauth2/auth"
     nginx.ingress.kubernetes.io/auth-signin: "https://$host/oauth2/start?rd=$escaped_request_uri"
     host: "{{ .Release.Name }}.{{ .Values.provider.domain }}"
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-  name: external-auth-oauth2
+    meta.helm.sh/release-name: kubernetes-dashboard
+    meta.helm.sh/release-namespace: kubernetes-dashboard
+  labels:
+    k8s-app: kubernetes-dashboard
+    app.kubernetes.io/managed-by: Helm
 spec:
   ingressClassName: nginx
   rules:
@@ -24,7 +29,9 @@ spec:
   - hosts:
     - {{ .Release.Name }}.{{ .Values.provider.domain }}
     secretName: {{ .Release.Name }}-tls
+
 ---
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -32,6 +39,11 @@ metadata:
   annotations:
     host: "{{ .Release.Name }}.{{ .Values.provider.domain }}"
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    meta.helm.sh/release-name: kubernetes-dashboard
+    meta.helm.sh/release-namespace: kubernetes-dashboard
+  labels:
+    k8s-app: kubernetes-dashboard
+    app.kubernetes.io/managed-by: Helm
 spec:
   ingressClassName: nginx
   rules:

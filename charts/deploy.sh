@@ -1,5 +1,6 @@
-#!/bin/bash
-export AWS_PROFILE=default
+#!/usr/bin/env bash
+
+export AWS_PROFILE="${AWS_PROFILE:-default}"
 
 helm package network
 helm package dashboard

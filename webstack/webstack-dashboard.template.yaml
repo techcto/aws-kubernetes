@@ -82,8 +82,8 @@ Resources:
     Properties:
       ClusterID: !Ref ClusterName
       Namespace: !Ref Namespace
-      Repository: "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts"
-      Chart: solodev/kubernetes-dashboard
+      Repository: https://solodev-kubernetes.s3.amazonaws.com/charts
+      Chart: kubernetes-dashboard
       Name: kubernetes-dashboard
       Version: 1.1
       ValueYaml: !Sub |
@@ -99,7 +99,6 @@ Resources:
           domain: ${ClusterZone}
 
 Outputs:
-    
     AdminUrl: 
         Description: Point your DNS to this CNAME.
         Value: !Join ["", [ !Ref "AWS::StackName", ".", !Ref ClusterZone ]]

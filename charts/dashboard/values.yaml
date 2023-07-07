@@ -13,4 +13,4 @@ provider:
   loginurl:
   redeemurl:
   oidcjwksurl:
-  scope: openid profile:read email:read
+  scope:

@@ -4,7 +4,6 @@ export AWS_PROFILE=default
 helm package network
 helm package dashboard
 helm package lets-encrypt
-helm package solodev-cms
 helm repo index .
 helm repo update
 

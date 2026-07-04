@@ -9,11 +9,7 @@ tag(){
 
 init(){
     git submodule init
-    git submodule add -f https://github.com/aws-quickstart/quickstart-aws-vpc.git ./submodules/quickstart-aws-vpc
-    git submodule add -f https://github.com/aws-quickstart/quickstart-linux-bastion.git ./submodules/quickstart-linux-bastion
     git submodule add -f https://github.com/techcto/amazon-eks-ami.git ./submodules/amazon-eks-ami
-    git submodule add -f https://github.com/aws-quickstart/quickstart-amazon-eks-nodegroup.git ./submodules/quickstart-amazon-eks-nodegroup
-    git submodule add -f https://github.com/aws-quickstart/quickstart-amazon-eks.git ./submodules/quickstart-amazon-eks
 }
 
 merge() {
@@ -41,11 +37,24 @@ helm(){
 }
 
 lambda(){
-    zip a functions/packages/WebStack/lambda.zip ./functions/source/WebStack/*
+    if [ ! -x functions/source/WebStack/bin/kubectl ] || [ ! -x functions/source/WebStack/bin/aws ]; then
+        echo "Missing functions/source/WebStack/bin/{kubectl,aws} - see functions/source/WebStack/README.md to build them."
+        exit 1
+    fi
+    rm -f functions/packages/WebStack/lambda.zip
+    (cd functions/source/WebStack && zip -r ../../packages/WebStack/lambda.zip . -x '*__pycache__*')
 }
 
 cft(){
     ./deploy.sh
+}
+
+test(){
+    ./test.sh
+}
+
+kcmd(){
+    aws s3 cp kcmd.sh s3://solodev-kubernetes/kcmd.sh --acl public-read
 }
 
 $*

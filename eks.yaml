@@ -188,8 +188,8 @@ Parameters:
     Default: ""
   KubernetesVersion:
     Type: String
-    AllowedValues: ['1.23', '1.22', '1.21']
-    Default: '1.22'
+    AllowedValues: ['1.36', '1.35', '1.34', '1.33', '1.32', '1.31']
+    Default: '1.34'
   BastionRole:
     Type: String
     Default: ""
@@ -205,8 +205,17 @@ Parameters:
     AllowedValues: [Enabled, Disabled]
     Default: Enabled
   EKSClusterLoggingTypes:
-    Type: List<String>
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Disabled
+    Description: Choose Enabled to send api, audit, authenticator, controllerManager, and scheduler logs to CloudWatch Logs.
+  NodeBootstrapExtraArgs:
+    Type: String
     Default: ""
+    Description: >-
+      Extra arguments appended to /etc/eks/bootstrap.sh on each node, e.g. --kubelet-extra-args
+      '--max-pods=110' to raise pod density above the ENI-based default, or a custom flag
+      supported by your own AMI's bootstrap.sh fork.
   EKSEncryptSecrets:
     Type: String
     AllowedValues: [Enabled, Disabled]
@@ -308,8 +317,19 @@ Parameters:
     Default: ""
 
 Mappings:
-  Config:
-    Prefix: { Value: 'eks-quickstart' }
+  AmiTypeMap:
+    Standard:
+      'Amazon Linux 2': { Value: AL2_x86_64 }
+      Bottlerocket: { Value: BOTTLEROCKET_x86_64 }
+      Windows: { Value: WINDOWS_CORE_2019_x86_64 }
+    ARM:
+      'Amazon Linux 2': { Value: AL2_ARM_64 }
+      Bottlerocket: { Value: BOTTLEROCKET_ARM_64 }
+      Windows: { Value: WINDOWS_CORE_2019_x86_64 }
+    GPU:
+      'Amazon Linux 2': { Value: AL2_x86_64_GPU }
+      Bottlerocket: { Value: BOTTLEROCKET_x86_64_NVIDIA }
+      Windows: { Value: WINDOWS_CORE_2019_x86_64 }
 
 Conditions:
   BastionRole: !Not [ !Equals [ !Ref BastionRole, "" ] ]
@@ -319,12 +339,14 @@ Conditions:
   EnablePublicEndpoint: !Equals [ !Ref EKSPublicAccessEndpoint, "Enabled" ]
   EnableLoadBalancerController: !Equals [!Ref 'ProvisionLoadBalancerController', 'Enabled']
   CustomeNodeRoleProvided: !Not [ !Equals [ !Ref CustomNodeRole, "" ] ]
+  NoCustomNodeRoleProvided: !Equals [ !Ref CustomNodeRole, "" ]
   CreateKey: !And
     - !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
     - !Equals [ !Ref EKSEncryptSecrets, Enabled ]
   EnableEncryption: !Equals [ !Ref EKSEncryptSecrets, Enabled ]
-  LoggingEnabled: !Not [ !Equals [ !Select [ 0, !Ref EKSClusterLoggingTypes ], "" ] ]
+  LoggingEnabled: !Equals [ !Ref EKSClusterLoggingTypes, Enabled ]
   EnableIamOidcProvider: !Equals [!Ref 'IamOidcProvider', 'Enabled']
+  CreateNodeGroup: !Equals [ !Ref ManagedNodeGroup, 'Yes' ]
   3AZDeployment: !Not [!Equals [!Ref PrivateSubnet3ID, ""]]
   2AZDeployment: !Or
     - !Not [!Equals [!Ref PrivateSubnet2ID, ""]]
@@ -340,30 +362,9 @@ Conditions:
 Resources:
 
   #============================================================================#
-  # Shared Resources
-  #============================================================================#
-
-  # SharedResources:
-  #   Type: AWS::CloudFormation::Stack
-  #   Properties:
-  #     TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/shared.yaml
-
-  #============================================================================#
   # Controlplane Security
   #============================================================================#
 
-  CleanupLambdas:
-    Type: Custom::LambdaCleanup
-    DependsOn: CleanupControlPlaneSecurityGroupDependencies
-    Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-CleanupLambdas', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      SecurityGroupId: !GetAtt ControlPlaneSecurityGroup.GroupId
-  CleanupControlPlaneSecurityGroupDependencies:
-    Type: Custom::LambdaSGCleanup
-    Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-CleanupSecurityGroupDependencies', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      Region: !Ref "AWS::Region"
-      SecurityGroupId: !GetAtt ControlPlaneSecurityGroup.GroupId
   ControlPlaneSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -494,10 +495,41 @@ Resources:
         ]
       }
 
+  ControlPlaneRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: eks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonEKSClusterPolicy
+
+  NodeInstanceRole:
+    Condition: NoCustomNodeRoleProvided
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonEKS_CNI_Policy
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+
   ControlPlane:
-    Type: "AWSQS::EKS::Cluster"
+    Type: "AWS::EKS::Cluster"
     Properties:
       Name: !Ref AWS::StackName
+      AccessConfig:
+        AuthenticationMode: API_AND_CONFIG_MAP
+        BootstrapClusterCreatorAdminPermissions: false
       ResourcesVpcConfig:
         SecurityGroupIds: [ !Ref ControlPlaneSecurityGroup ]
         SubnetIds: !If
@@ -519,77 +551,243 @@ Resources:
         PublicAccessCidrs: !Ref EKSPublicAccessCIDRs
         EndpointPrivateAccess: !If [ EnablePrivateEndpoint, true, false ]
         EndpointPublicAccess: !If [ EnablePublicEndpoint, true, false ]
-      EnabledClusterLoggingTypes: !If [ LoggingEnabled, !Ref EKSClusterLoggingTypes, !Ref "AWS::NoValue" ]
+      Logging: !If
+        - LoggingEnabled
+        - ClusterLogging:
+            EnabledTypes:
+              - { Type: api }
+              - { Type: audit }
+              - { Type: authenticator }
+              - { Type: controllerManager }
+              - { Type: scheduler }
+        - !Ref AWS::NoValue
       EncryptionConfig: !If
         - EnableEncryption
         - - Resources: [ secrets ]
             Provider:
               KeyArn: !If [ CreateKey, !GetAtt KMSKey.Arn, !Ref EKSEncryptSecretsKmsKeyArn ]
         - !Ref AWS::NoValue
-      RoleArn: !Sub ["arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${Prefix}-ControlPlane", {Prefix: !FindInMap [Config, Prefix, Value]}]
+      RoleArn: !GetAtt ControlPlaneRole.Arn
       Version: !Ref KubernetesVersion
-      KubernetesApiAccess:
-        Roles:
-          - Arn: !Sub
-              - 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${NodeRole}'
-              - NodeRole: !If
-                  - CustomeNodeRoleProvided
-                  - !Ref CustomNodeRole
-                  - !Sub [ '${Prefix}-UnmanagedNodeInstance', { Prefix: !FindInMap [ Config, Prefix, Value ] } ]
-            Username: 'system:node:{{EC2PrivateDNSName}}'
-            Groups: [ 'system:bootstrappers', 'system:nodes', 'eks:kube-proxy-windows' ]
-          - Arn: !GetAtt KubernetesAdminRole.Arn
-            Username: !GetAtt KubernetesAdminRole.Arn
-            Groups: [ 'system:masters' ]
-          - Arn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-helm"
-            Username: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-helm"
-            Groups: [ 'system:masters' ]
-          - Arn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-get"
-            Username: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-get"
-            Groups: [ 'system:masters' ]
-          - Arn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-resource"
-            Username: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-resource"
-            Groups: [ 'system:masters' ]
-          # We don't know whether GetCallerArn returned a user arn or a role arn, so we just add it to both
-          - Arn: !GetAtt CallerArn.Arn
-            Username: !GetAtt CallerArn.Arn
-            Groups: [ 'system:masters' ]
-          - !If
-            - BastionRole
-            - Arn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${BastionRole}"
-              Username: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${BastionRole}"
-              Groups: [ 'system:masters' ]
-            - !Ref 'AWS::NoValue'
-          - !If
-            - AddRole
-            - Arn: !Ref AdditionalEKSAdminRoleArn
-              Username: !Ref AdditionalEKSAdminRoleArn
-              Groups: [ 'system:masters' ]
-            - !Ref 'AWS::NoValue'
-        Users:
-          # We don't know whether GetCallerArn returned a user arn or a role arn, so we just add it to both
-          - Arn: !GetAtt CallerArn.Arn
-            Username: !GetAtt CallerArn.Arn
-            Groups: [ 'system:masters' ]
-          - Arn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
-            Username: !GetAtt CallerArn.Arn
-            Groups: [ 'system:masters' ]
-          - !If
-            - AddUser
-            - Arn: !Ref AdditionalEKSAdminUserArn
-              Username: !Ref AdditionalEKSAdminUserArn
-              Groups: [ 'system:masters' ]
-            - !Ref 'AWS::NoValue'
-  CleanupLoadBalancers:
-    Type: Custom::CleanupLoadBalancers
+
+  AdminAccessEntry:
+    Type: AWS::EKS::AccessEntry
     Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-CleanupLoadBalancers', {Prefix: !FindInMap [Config, Prefix, Value]}]
-      ClusterName: !Ref AWS::StackName
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !GetAtt KubernetesAdminRole.Arn
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  HelmAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-helm"
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  KubernetesGetAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-get"
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  KubernetesResourceAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-resource"
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  CallerAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !GetAtt CallerArn.Arn
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  RootAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  BastionAccessEntry:
+    Condition: BastionRole
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${BastionRole}"
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  AdditionalAdminRoleAccessEntry:
+    Condition: AddRole
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !Ref AdditionalEKSAdminRoleArn
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+  AdditionalAdminUserAccessEntry:
+    Condition: AddUser
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ControlPlane
+      PrincipalArn: !Ref AdditionalEKSAdminUserArn
+      AccessPolicies:
+        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: { Type: cluster }
+
+  # Self-hosted replacements for the eks-quickstart-* helper Lambdas below.
+  # Each is a small inline Python function (no layers, no external packages)
+  # so this template no longer depends on the (retired) AWS Quick Start
+  # per-account/per-region shared resources for these two operations.
+
+  CustomResourceHelperRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: '*'
+        - PolicyName: get-caller-arn
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sts:GetCallerIdentity
+                Resource: '*'
+        - PolicyName: cleanup-load-balancers
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTags
+                  - elasticloadbalancing:DeleteLoadBalancer
+                Resource: '*'
+
+  GetCallerArnFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt CustomResourceHelperRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import urllib.request
+
+          def send(event, context, status, data=None, physical_id=None, reason=None):
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch Logs",
+                  "PhysicalResourceId": physical_id or context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": data or {},
+              }).encode("utf-8")
+              req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT")
+              req.add_header("Content-Type", "")
+              req.add_header("Content-Length", str(len(body)))
+              urllib.request.urlopen(req)
+
+          def handler(event, context):
+              try:
+                  if event["RequestType"] == "Delete":
+                      send(event, context, "SUCCESS")
+                      return
+                  arn = boto3.client("sts").get_caller_identity()["Arn"]
+                  send(event, context, "SUCCESS", {"Arn": arn}, physical_id=arn)
+              except Exception as e:
+                  send(event, context, "FAILED", reason=str(e))
+
   CallerArn:
-    Type: Custom::GetCallerArn
+    Type: AWS::CloudFormation::CustomResource
     Properties:
-      ServiceToken: !Sub ['arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Prefix}-GetCallerArn', {Prefix: !FindInMap [Config, Prefix, Value]}]
+      ServiceToken: !GetAtt GetCallerArnFunction.Arn
+
+  CleanupLoadBalancersFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt CustomResourceHelperRole.Arn
+      Timeout: 120
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import urllib.request
+
+          def send(event, context, status, data=None, physical_id=None, reason=None):
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch Logs",
+                  "PhysicalResourceId": physical_id or context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": data or {},
+              }).encode("utf-8")
+              req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT")
+              req.add_header("Content-Type", "")
+              req.add_header("Content-Length", str(len(body)))
+              urllib.request.urlopen(req)
+
+          # Deletes any ELB/ALB/NLB tagged elbv2.k8s.aws/cluster=<cluster-name> - these
+          # are created by in-cluster Services/Ingress via the Load Balancer Controller
+          # and would otherwise block VPC/security-group deletion on stack teardown.
+          def handler(event, context):
+              try:
+                  if event["RequestType"] != "Delete":
+                      send(event, context, "SUCCESS")
+                      return
+                  cluster_name = event["ResourceProperties"]["ClusterName"]
+                  elbv2 = boto3.client("elasticloadbalancing")
+                  paginator = elbv2.get_paginator("describe_load_balancers")
+                  for page in paginator.paginate():
+                      for lb in page["LoadBalancers"]:
+                          tags = elbv2.describe_tags(ResourceArns=[lb["LoadBalancerArn"]])
+                          tag_map = {
+                              t["Key"]: t["Value"]
+                              for desc in tags["TagDescriptions"]
+                              for t in desc["Tags"]
+                          }
+                          if tag_map.get("elbv2.k8s.aws/cluster") == cluster_name:
+                              elbv2.delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
+                  send(event, context, "SUCCESS")
+              except Exception as e:
+                  send(event, context, "FAILED", reason=str(e))
+
+  CleanupLoadBalancers:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt CleanupLoadBalancersFunction.Arn
       ClusterName: !Ref AWS::StackName
+
   ClusterOIDCProvider:
     Condition: EnableIamOidcProvider
     Type: AWS::IAM::OIDCProvider
@@ -598,56 +796,280 @@ Resources:
         - sts.amazonaws.com
       ThumbprintList:
         - 9e99a48a9960b14926bb7f3b02e22da2b0ab7280
-      Url: !GetAtt ControlPlane.OIDCIssuerURL
+      Url: !GetAtt ControlPlane.OpenIdConnectIssuerUrl
 
   #============================================================================#
-  # Node Group Stack
+  # Node Group
   #============================================================================#
+  # Scoped to EKS-managed node groups only. The old "Unmanaged" self-managed-ASG path
+  # (NodeGroupType: Unmanaged) is not implemented natively here - it would need its own
+  # AutoScalingGroup + LaunchTemplate stack rather than AWS::EKS::Nodegroup.
 
-  NodeGroupStack:
-    Type: "AWS::CloudFormation::Stack"
+  NodeLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !If [ CustomAmi, !Ref CustomAmiId, !Ref "AWS::NoValue" ]
+        KeyName: !If [ UseKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue" ]
+        UserData: !Base64
+          Fn::Sub:
+            - |
+              #!/bin/bash
+              /etc/eks/bootstrap.sh ${ClusterName} ${BootArgs}
+            - ClusterName: !Ref AWS::StackName
+              BootArgs: !Join
+                - " "
+                - - !If [ EnableWeave, "--enable-weave 'true'", "" ]
+                  - !Ref NodeBootstrapExtraArgs
+
+  NodeGroup:
+    Condition: CreateNodeGroup
+    Type: AWS::EKS::Nodegroup
     DependsOn: ControlPlane
     Properties:
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/amazon-eks-nodegroup.template.yaml
-      Parameters:
-        KeyPairName: !If [UseKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
-        NodeGroupOS: !Ref NodeGroupOS
-        Subnet1ID: !Ref PrivateSubnet1ID
-        Subnet2ID: !If [2AZDeployment, !Ref PrivateSubnet2ID, !Ref "AWS::NoValue" ]
-        Subnet3ID: !If [3AZDeployment, !Ref PrivateSubnet3ID, !Ref "AWS::NoValue" ]
-        NodeInstanceType: !Ref NodeInstanceType
-        NumberOfNodes: !Ref NumberOfNodes
-        MaxNumberOfNodes: !Ref MaxNumberOfNodes
-        NodeGroupName: !Ref NodeGroupName
-        NodeVolumeSize: !Ref NodeVolumeSize
-        CustomAmiId: !If [CustomAmi, !Ref CustomAmiId, !Ref "AWS::NoValue" ]
-        EKSClusterName: !Ref AWS::StackName
-        NodeInstanceFamily: !Ref NodeInstanceFamily
-        NodeGroupType: !Ref NodeGroupType
-        CreateNodeGroup: !Ref ManagedNodeGroup
-        Labels: !Sub "Name=Nodegroup-${AWS::StackName}"
-        BootstrapArguments: !If [EnableWeave, "--enable-weave 'true'", ""]
+      ClusterName: !Ref ControlPlane
+      NodegroupName: !Ref NodeGroupName
+      NodeRole: !If
+        - CustomeNodeRoleProvided
+        - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${CustomNodeRole}"
+        - !GetAtt NodeInstanceRole.Arn
+      Subnets: !If
+        - 3AZDeployment
+        - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]
+        - !If
+          - 2AZDeployment
+          - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]
+          - [ !Ref PrivateSubnet1ID ]
+      InstanceTypes: [ !Ref NodeInstanceType ]
+      AmiType: !If
+        - CustomAmi
+        - CUSTOM
+        - !FindInMap [ AmiTypeMap, !Ref NodeInstanceFamily, !Ref NodeGroupOS, Value ]
+      DiskSize: !Ref NodeVolumeSize
+      ScalingConfig:
+        MinSize: 1
+        MaxSize: !Ref MaxNumberOfNodes
+        DesiredSize: !Ref NumberOfNodes
+      LaunchTemplate:
+        Id: !Ref NodeLaunchTemplate
+        Version: !GetAtt NodeLaunchTemplate.LatestVersionNumber
+      Labels:
+        Name: !Sub "Nodegroup-${AWS::StackName}"
 
-  LoadBalancerStack:
-    DependsOn: NodeGroupStack
+  LoadBalancerControllerIAMRole:
     Condition: EnableLoadBalancerController
-    Type: AWS::CloudFormation::Stack
+    DependsOn: NodeGroup
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [EIAMPolicyWildcardResource]
+          ignore_reasons:
+            EIAMPolicyWildcardResource: "resources are created dynamically by the k8s cloud controller, and aren't known at the time of policy creation"
     Properties:
-      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/amazon-eks-load-balancer-controller.template.yaml
-      Parameters:
-        OIDCIssuerURLWithoutProtocol:  !Join [ '', !Split [ 'https://', !GetAtt ControlPlane.OIDCIssuerURL ] ]
-        EksClusterName: !Ref AWS::StackName
-        VpcId: !Ref VPCID
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerURLWithoutProtocol}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerURLWithoutProtocol}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+                  }
+                }
+              }
+            ]
+          }
+        - OIDCIssuerURLWithoutProtocol: !Join [ '', !Split [ 'https://', !GetAtt ControlPlane.OpenIdConnectIssuerUrl ] ]
+      Policies:
+      - PolicyName: load-balancer-controller-policy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'iam:CreateServiceLinkedRole'
+                - 'ec2:DescribeAccountAttributes'
+                - 'ec2:DescribeAddresses'
+                - 'ec2:DescribeAvailabilityZones'
+                - 'ec2:DescribeInternetGateways'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeInstances'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeTags'
+                - 'ec2:GetCoipPoolUsage'
+                - 'ec2:DescribeCoipPools'
+                - 'elasticloadbalancing:DescribeLoadBalancers'
+                - 'elasticloadbalancing:DescribeLoadBalancerAttributes'
+                - 'elasticloadbalancing:DescribeListeners'
+                - 'elasticloadbalancing:DescribeListenerCertificates'
+                - 'elasticloadbalancing:DescribeSSLPolicies'
+                - 'elasticloadbalancing:DescribeRules'
+                - 'elasticloadbalancing:DescribeTargetGroups'
+                - 'elasticloadbalancing:DescribeTargetGroupAttributes'
+                - 'elasticloadbalancing:DescribeTargetHealth'
+                - 'elasticloadbalancing:DescribeTags'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:DescribeUserPoolClient'
+                - 'acm:ListCertificates'
+                - 'acm:DescribeCertificate'
+                - 'iam:ListServerCertificates'
+                - 'iam:GetServerCertificate'
+                - 'waf-regional:GetWebACL'
+                - 'waf-regional:GetWebACLForResource'
+                - 'waf-regional:AssociateWebACL'
+                - 'waf-regional:DisassociateWebACL'
+                - 'wafv2:GetWebACL'
+                - 'wafv2:GetWebACLForResource'
+                - 'wafv2:AssociateWebACL'
+                - 'wafv2:DisassociateWebACL'
+                - 'shield:GetSubscriptionState'
+                - 'shield:DescribeProtection'
+                - 'shield:CreateProtection'
+                - 'shield:DeleteProtection'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ec2:AuthorizeSecurityGroupIngress'
+                - 'ec2:RevokeSecurityGroupIngress'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateSecurityGroup'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateTags'
+              Resource: !Sub 'arn:${AWS::Partition}:ec2:*:*:security-group/*'
+              Condition:
+                StringEquals:
+                  'ec2:CreateAction': CreateSecurityGroup
+                'Null':
+                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateTags'
+                - 'ec2:DeleteTags'
+              Resource: !Sub 'arn:${AWS::Partition}:ec2:*:*:security-group/*'
+              Condition:
+                'Null':
+                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'true'
+                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'ec2:AuthorizeSecurityGroupIngress'
+                - 'ec2:RevokeSecurityGroupIngress'
+                - 'ec2:DeleteSecurityGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:CreateLoadBalancer'
+                - 'elasticloadbalancing:CreateTargetGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:CreateListener'
+                - 'elasticloadbalancing:DeleteListener'
+                - 'elasticloadbalancing:CreateRule'
+                - 'elasticloadbalancing:DeleteRule'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:AddTags'
+                - 'elasticloadbalancing:RemoveTags'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:targetgroup/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:loadbalancer/net/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:loadbalancer/app/*/*'
+              Condition:
+                'Null':
+                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'true'
+                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:AddTags'
+                - 'elasticloadbalancing:RemoveTags'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener/net/*/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener/app/*/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener-rule/net/*/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener-rule/app/*/*/*'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:ModifyLoadBalancerAttributes'
+                - 'elasticloadbalancing:SetIpAddressType'
+                - 'elasticloadbalancing:SetSecurityGroups'
+                - 'elasticloadbalancing:SetSubnets'
+                - 'elasticloadbalancing:DeleteLoadBalancer'
+                - 'elasticloadbalancing:ModifyTargetGroup'
+                - 'elasticloadbalancing:ModifyTargetGroupAttributes'
+                - 'elasticloadbalancing:DeleteTargetGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:RegisterTargets'
+                - 'elasticloadbalancing:DeregisterTargets'
+              Resource: !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:targetgroup/*/*'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:SetWebAcl'
+                - 'elasticloadbalancing:ModifyListener'
+                - 'elasticloadbalancing:AddListenerCertificates'
+                - 'elasticloadbalancing:RemoveListenerCertificates'
+                - 'elasticloadbalancing:ModifyRule'
+              Resource: '*'
+
+  LoadBalancerControllerHelmChart:
+    Condition: EnableLoadBalancerController
+    Type: "AWSQS::Kubernetes::Helm"
+    Metadata: { cfn-lint: { config: { ignore_checks: [ E3012 ] } } }
+    Properties:
+      ClusterID: !Ref AWS::StackName
+      Namespace: kube-system
+      Name: aws-load-balancer-controller
+      Repository: https://aws.github.io/eks-charts
+      Chart: eks/aws-load-balancer-controller
+      # Chart version tracks the eks-charts repo; verify against
+      # https://artifacthub.io/packages/helm/aws/aws-load-balancer-controller before deploying.
+      Version: 1.14.0
+      Values:
+        clusterName: !Ref AWS::StackName
+        region: !Sub '${AWS::Region}'
+        vpcId: !Ref VPCID
+      ValueYaml: !Sub |
+        serviceAccount:
+          annotations:
+            eks.amazonaws.com/role-arn: ${LoadBalancerControllerIAMRole.Arn}
+        nodeSelector:
+          kubernetes.io/os: linux
   
   #============================================================================#
   # Web Stack
   #============================================================================#
-  CleanupLambdaSecurityGroupDependencies:
-    Type: Custom::CleanupSecurityGroupDependencies
-    Properties:
-      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-CleanupSecurityGroupDependencies
-      Region: !Ref AWS::Region
-      SecurityGroups: [!Ref EKSLambdaSecurityGroup]
+  # Note: the eks-quickstart-CleanupSecurityGroupDependencies workaround existed for
+  # a historical Lambda-ENI-cleanup delay that blocked security group deletion. AWS's
+  # Lambda networking (Hyperplane) has handled this reliably for years now, so this
+  # resource (and GetVpcCidr, which was already unused dead code) have been dropped
+  # rather than reimplemented.
   EKSLambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -656,7 +1078,6 @@ Resources:
       VpcId: !Ref VPCID
   ClusterControlPlaneSecurityGroupIngress:
     Type: AWS::EC2::SecurityGroupIngress
-    DependsOn: [CleanupLambdaSecurityGroupDependencies]
     Properties:
       Description: Allow lambda to communicate with the cluster API Server.
       GroupId: !Ref ControlPlaneSecurityGroup
@@ -664,30 +1085,9 @@ Resources:
       IpProtocol: tcp
       ToPort: 443
       FromPort: 443
-  GetVpcCidr:
-    Type: Custom::ResourceReader
-    Properties:
-      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
-      AwsCliCommand: !Sub ec2 describe-vpcs --vpc-id ${VPCID} --query 'Vpcs[0].{CidrBlock:CidrBlock}'
-      IdField: CidrBlock
-  GetKubectlLayerArn:
-    Type: Custom::ResourceReader
-    Properties:
-      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
-      AwsCliCommand: lambda list-layer-versions --layer-name eks-quickstart-Kubectl --query 'max_by(LayerVersions, &Version)'
-      IdField: LayerVersionArn
-  GetCrHelperLayerArn:
-    Type: Custom::ResourceReader
-    Properties:
-      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
-      AwsCliCommand: lambda list-layer-versions --layer-name eks-quickstart-CrHelper --query 'max_by(LayerVersions, &Version)'
-      IdField: LayerVersionArn
-  GetAwsCliLayerArn:
-    Type: Custom::ResourceReader
-    Properties:
-      ServiceToken: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:eks-quickstart-ResourceReader
-      AwsCliCommand: lambda list-layer-versions --layer-name eks-quickstart-AwsCli --query 'max_by(LayerVersions, &Version)'
-      IdField: LayerVersionArn
+  # kubectl/aws CLI no longer come from eks-quickstart-Kubectl/AwsCli layers - they
+  # must be vendored directly into functions/packages/WebStack/lambda.zip instead.
+  # See functions/source/WebStack/README.md for how to build that bundle.
   WebStackLambda:
     DependsOn: LoadBalancerStack
     Type: AWS::Lambda::Function
@@ -695,13 +1095,17 @@ Resources:
       Handler: lambda_function.lambda_handler
       MemorySize: 256
       Role: !GetAtt KubernetesAdminRole.Arn
-      Runtime: python3.9
+      Runtime: python3.13
       Timeout: 900
-      Layers: [!Ref GetKubectlLayerArn, !Ref GetCrHelperLayerArn, !Ref GetAwsCliLayerArn]
       Code:
         S3Bucket: !Ref LambdaBucketName
         S3Key: !Sub '${KeyPrefix}functions/packages/WebStack/lambda.zip'
-      Environment: { Variables: { KUBECONFIG: /tmp/.kube/config } }
+      Environment:
+        Variables:
+          KUBECONFIG: /tmp/.kube/config
+          # kubectl/aws binaries are vendored into the deployment package's bin/ dir
+          # (see functions/source/WebStack/README.md) rather than provided by a layer.
+          PATH: /var/lang/bin:/usr/local/bin:/usr/bin/:/bin:/opt/bin:/var/task/bin
       VpcConfig:
         SecurityGroupIds: [!Ref EKSLambdaSecurityGroup]
         SubnetIds: !If
@@ -751,7 +1155,7 @@ Resources:
         CloudAccessToken: !Ref CloudAccessToken
         CloudKeySet: !Ref CloudKeySet
         CloudKeySet: !Ref CloudScope
-        OIDCUrl: !GetAtt ControlPlane.OIDCIssuerURL
+        OIDCUrl: !GetAtt ControlPlane.OpenIdConnectIssuerUrl
 
 #============================================================================#
 # Outputs
@@ -765,7 +1169,7 @@ Outputs:
   EKSEndpoint:
     Value: !GetAtt ControlPlane.Endpoint
   OIDCIssuerURL:
-    Value: !GetAtt ControlPlane.OIDCIssuerURL
+    Value: !GetAtt ControlPlane.OpenIdConnectIssuerUrl
   ControlPlaneSecurityGroup:
     Value: !Ref ControlPlaneSecurityGroup
   SysOpsAdminRoleArn:

@@ -1,4 +1,5 @@
 functions/packages/*
+functions/source/WebStack/bin/*
 submodules/*
 *taskcat
 taskcat_outputs
@@ -6,3 +7,4 @@ bin/*
 eks.json
 .env
 *zip
+.kcmd/

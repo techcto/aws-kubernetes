@@ -1,69 +1,93 @@
-<a href="#"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/Solodev_Lite_Header.jpg"/></a>
+# aws-kubernetes
 
-# Solodev Managed Kubernetes for EKS..
-This Quick Start helps you to deploy a Kubernetes cluster that uses Amazon Elastic Kubernetes Service (Amazon EKS), enabling you to deploy, manage, and scale containerized applications running on Kubernetes on the Amazon Web Services (AWS) Cloud.
+CloudFormation templates and Helm charts for deploying a Solodev-managed
+Amazon EKS cluster into an existing VPC, with an optional set of cluster
+add-ons (ingress, external DNS, TLS via cert-manager/Let's Encrypt, and the
+Kubernetes Dashboard).
 
-## Overview
-Solodev Managed Kubernetes for EKS uses a set of YAML templates to create a new EKS cluster. All YAML templates are deployed via <a href="http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/Welcome.html">AWS CloudFormation</a>.
+The control plane and node group are provisioned with native
+`AWS::EKS::Cluster` / `AWS::EKS::Nodegroup` resources, and the cluster's
+supporting Lambda functions (cluster-access lookup, load balancer
+cleanup) are self-hosted inline in `eks.yaml`. This project no longer
+depends on the AWS Quick Start EKS templates or its shared per-account/
+per-region resources, both of which were retired in 2024–2025.
 
-![AWS Diagram](https://raw.githubusercontent.com/solodev/aws/master/pages/images/Solodev_EKS_Architecture.jpg)
+## What this deploys
 
-## Step 1: Launch Solodev Managed Kubernetes for EKS via CloudFormation
-<table>
-	<tr>
-		<td width="25%"><a href="pages/deploy-solodev-eks.md"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/amazon-eks-by-solodev.jpg" /></a></td>
-		<td>
-			<h3>Solodev Managed Kubernetes for EKS</h3>
-			<p>Launch Amazon Elastic Kubernetes Service (EKS) in a new cluster and manage your containers at any scale with Solodev. Launch your applications rapidly and across AWS Regions and Availability Zones, and move from environment to environment regardless of operating system.</p>
-			<p align="right"><a href="pages/deploy-solodev-eks.md"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/solodev-launch-btn.png" width="200" /></a></p>
-		</td>
-	</tr>
-</table>
+- An EKS cluster (`eks.yaml`) with:
+  - Native `AWS::EKS::Cluster` control plane and IAM role
+  - Native `AWS::EKS::Nodegroup` (managed node group) with a launch
+    template for custom bootstrap arguments (e.g. raising `max-pods`, or
+    flags supported by a custom node AMI)
+  - `AWS::EKS::AccessEntry` resources for cluster access instead of the
+    legacy aws-auth ConfigMap
+  - Optional AWS Load Balancer Controller, installed via Helm
+- An optional web stack (`webstack.yaml` + `webstack/*.template.yaml`),
+  installed via Helm, for:
+  - NGINX Ingress
+  - ExternalDNS (Route 53)
+  - cert-manager + Let's Encrypt
+  - Kubernetes Dashboard
+  - A small custom Lambda-backed resource (`functions/source/WebStack`)
+    for cluster-internal setup (Weave CNI toggle, Solodev network/token
+    provisioning)
 
-## Launch Apps on your Managed Kubernetes Cluster
-With your EKS cluster up and running, you can install apps within the cluster itself. Below are available apps with more to come!
-<table>
-	<tr>
-		<td width="150"><a href="pages/deploy-kubernetes-web-ui.md"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/apps/eks-app-kubernetes-web-ui-2.jpg" /></a></td>
-		<td>
-			<h4>Kubernetes Web UI (Dashboard)</h4>
-			<p>Dashboard is a web-based Kubernetes user interface. You can use Dashboard to deploy containerized applications to a Kubernetes cluster, troubleshoot your containerized application, and manage the cluster resources.</p>
-			<p align="right"><a href="pages/deploy-kubernetes-web-ui.md">More Details</a></p>
-		</td>
-	</tr>
-</table>
-<!-- <table>
-	<tr>
-		<td width="150"><a href="pages/deploy-solodev-cms.md"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/solodev-dcx-for-eks.jpg" /></a></td>
-		<td>
-			<h4>Solodev Content Management (CMS) for Kubernetes</h4>
-			<p>Deploy Solodev CMS for Kubernetes and start managing and scaling your websites and digital experiences on AWS. Rapidly move from your local environment to the cloud, add or remove containers to meet shifts in traffic, and manage entire fleets of Solodev applications with the power of Amazon EKS.</p>
-			<p align="right"><a href="pages/deploy-solodev-cms.md">More Details</a></p>
-		</td>
-	</tr>
-</table> -->
+## Repository layout
 
-## Support
-Houston, we have no problems… because Solodev Customer Care has your back at every step! From our world-class HelpDesk to our focused training sessions, you’ve got the best team on the ground to get you to the stars. 
+| Path | Purpose |
+|---|---|
+| `eks.yaml` | Root CloudFormation template: EKS control plane, node group, Load Balancer Controller, and the self-hosted helper Lambdas |
+| `webstack.yaml`, `webstack/` | Optional add-on stacks, installed via `AWSQS::Kubernetes::Helm` |
+| `charts/` | Helm charts owned by this repo (`network`, `dashboard`, `lets-encrypt`) and their packaged `.tgz`/`index.yaml`, published as a private Helm repo |
+| `functions/source/WebStack` | Source for the custom web-stack Lambda (see its own README for the `kubectl`/`aws` build step); `functions/packages/` holds the built `lambda.zip` |
+| `submodules/amazon-eks-ami` | Fork used for custom node AMI builds (not consumed directly by the CFN templates) |
+| `bin/eks.json` | Local, untracked CloudFormation parameters file for `eks.yaml` (see `deploy.sh`) |
+| `kcmd.sh` | Interactive CLI to create/delete the cluster and manage it day-to-day (see `pages/kcmd.md`) — the CloudFormation-based counterpart to this org's `eksctl`-based `ekscli.sh` |
+| `cmd.sh` | All build/deploy/publish commands (see below) |
 
-Solodev Customer Care Includes
-* 24x7x365 U.S. based human support
-* Online HelpDesk ticketing
-* Phone and email support
-* Live training courses
-* Over 300 pages of searchable documentation and tutorials
+`datadog`, `solodev-cms`, and `wordpress` Helm charts previously lived
+under `charts/` too; they've moved out to a separate location since
+they're workload charts installed later from the main Solodev Cloud app,
+not part of standing up the cluster itself.
 
-To learn more about our add-on support options, call 1-800-859-7656 to speak with one of our Solodev Customer Care Specialists.
+## Prerequisites
 
-<a href="https://www.solodev.com/features/support.stml"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/Solodev_Git_Support.jpg"/></a>
+- An existing VPC with public/private subnets
+- AWS CLI and credentials for the target account
+- [Helm](https://helm.sh/) 3+
+- Docker (to build the `kubectl`/`aws` binaries vendored into the
+  WebStack Lambda — see `functions/source/WebStack/README.md`)
+- CloudFormation public extensions activated in the target region/account:
+  `AWSQS::Kubernetes::Helm` (used for all Helm-based installs in this repo)
 
-## Need Help?
-Solodev is a professionally managed, enterprise-class solution, and our team of certified engineers are here to support your success. While our self-serve options are easy to launch, you’ve always got a co-pilot at the helm. If you have any questions – or if you already have a Solodev license and need support with your AWS subscription – call <a href="tel:1.800.859.7656">1-800-859-7656</a> and we’ll help you get to the launchpad.
+## Building and deploying
 
----
-© 2020 Solodev. All rights reserved worldwide. And off planet. 
+Everything goes through `cmd.sh`:
 
-Errors or corrections? Email us at help@solodev.com.
+```sh
+./cmd.sh init      # one-time: register the amazon-eks-ami submodule
+./cmd.sh lambda     # package functions/source/WebStack into functions/packages/WebStack/lambda.zip
+./cmd.sh helm       # package charts/{network,dashboard,lets-encrypt} and publish the Helm repo index to S3
+./cmd.sh cft        # publish eks.yaml/webstack.yaml/etc. to S3 (upload only, does not create a stack)
+./cmd.sh test       # create a throwaway tmp-kube-* stack from the currently-published eks.yaml, using bin/eks.json
+./cmd.sh kcmd       # publish kcmd.sh to S3 so it can be curl'd standalone
+```
 
----
-Visit [solodev.com](https://www.solodev.com/) to learn more. <img src="https://www.google-analytics.com/collect?v=1&tid=UA-3849724-1&cid=1&t=event&ec=github_aws&ea=main&cs=github&cm=github&cn=github_aws" />
+`kcmd.sh create cluster` always reads `eks.yaml` from S3, never your
+local working copy — run `./cmd.sh lambda && ./cmd.sh helm && ./cmd.sh cft`
+(in that order) to publish a change before creating a cluster from it.
+See `pages/kcmd.md` for using `kcmd.sh` day-to-day once published.
+
+## Kubernetes version support
+
+`KubernetesVersion` in `eks.yaml` tracks Amazon EKS's standard support
+window. Check the
+[EKS Kubernetes release calendar](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html)
+before bumping the default or allowed values.
+
+## Contributing
+
+Issues and pull requests welcome. Please open an issue before large
+changes to the CloudFormation templates, since they provision real
+account-level infrastructure (IAM roles, EKS access entries) that's easy
+to get subtly wrong.

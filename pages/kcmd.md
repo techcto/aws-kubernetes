@@ -1,74 +1,92 @@
-# Use Solodev kcmd.sh to Connect to Kubernetes Web UI (Dashboard)
-The following steps will allow you to connect to the Kubernetes Web UI (Dashboard) through the use of Solodev's custom kcmd shell script (kcmd.sh). 
+# kcmd.sh
 
-## Step 1: Gather Stack Outputs for your Solodev Managed Kubernetes for EKS
-Click on the primary stack and view the "Outputs" tab. You will find details pertaining to the cluster's BastionIP, EKSClusterName, HelmLambdaArn, KubeConfigPath, and KubeManifestLambdaArn. Click on the "ControlPlane" stack to see details pertaining to the cluster's CADATA, ControlPlaneProvisionRoleArn, EKSEndpoint, EKSName, EksArn, and KubeConfigPath.
+Interactive CLI for creating and managing a Solodev EKS cluster
+(`eks.yaml`) — the CloudFormation-based counterpart to this
+organization's `ekscli.sh` (which drives clusters via `eksctl` for
+running Solodev CMS). Use `kcmd.sh` when the cluster itself is, or
+should be, a CloudFormation stack from this repo.
 
-Save or take note of these output values as you will need them when launching Solodev EKS on the cluster.
+## Install
 
-<table>
-	<tr>
-		<td><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/install/outputs-solodev-cms-eks-1-15.jpg" /></td>
-	</tr>
-</table>
+```bash
+curl -O https://solodev-kubernetes.s3.amazonaws.com/kcmd.sh && chmod 700 kcmd.sh
+```
 
-## Step 2: Download and Configure kcmd.sh
-Details such as the number of services and pods running on your EKS cluster can be accessed via the <a href="https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/">Kubernetes Dashboard</a>. Solodev has simplified getting this up and running through the use of commands in a custom kcmd shell script.
+Requires: `aws` CLI, `kubectl`, `helm`, `jq`
 
-<b>Prerequisites:</b> These instructions presume you already have installed <a href="https://kubernetes.io/docs/tasks/tools/install-kubectl/">kubectl</a>, <a href="https://aws.amazon.com/cli/">aws cli</a>, <a href="https://docs.aws.amazon.com/eks/latest/userguide/install-aws-iam-authenticator.html">aws-iam-authenticator</a>, <a href="https://stedolan.github.io/jq/">jq</a> (<a href="https://chocolatey.org/packages/jq">windows install instructions</a>), and <a href="https://github.com/helm/helm">kubernetes-helm</a>.
+## Publish (maintainers)
 
-Access and download the <a href="https://github.com/techcto/quickstart-solodev-eks/blob/master/scripts/kcmd.sh">Solodev EKS custom kcmd.sh script</a>. Place the shell script inside a directory you will use to access your Kubernetes cluster.
+```bash
+./cmd.sh kcmd
+```
 
-Modify lines 8-9. The values will correspond to your stack's output.
+Uploads `kcmd.sh` to `s3://solodev-kubernetes/kcmd.sh` (public-read) —
+run this after any change to the script.
 
-<pre>
-#GET VALUES FROM CLOUDFORMATION OUTPUT OF EKS STACK
-export EKSClusterName=""
-export SysOpsAdminRoleArn=""
-</pre>
+## Usage
 
-Modify lines 12-15. REGION corresponds to the <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.RegionsAndAvailabilityZones.html">AWS Region</a> where your EKS cluster is located. USER_ARN corresponds to the User ARN of your <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html">AWS IAM User</a>. KEY corresponds to the <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html">EC2 Key Pair</a> specified during the EKS cluster launch. BASTION corresponds to the Bastion IP which can be found in the stack's output.
+```
+./kcmd.sh [options]                    Open interactive menu
+./kcmd.sh [options] create cluster     Create the EKS cluster (eks.yaml)
+./kcmd.sh [options] delete cluster     Delete the EKS cluster and all resources
+./kcmd.sh [options] kubeconfig         Write/refresh the kubeconfig
+./kcmd.sh [options] status             Show stack + pod status
+./kcmd.sh [options] ls                 List all pods and services
+./kcmd.sh [options] pod <name>         Show a pod
+./kcmd.sh [options] logs <name>        Follow a pod's logs
+./kcmd.sh [options] token              Print admin token
+./kcmd.sh [options] proxy              Open Dashboard (port-forward)
+./kcmd.sh [options] update             Update Helm repos
+./kcmd.sh [options] install <name>     Install a release
+./kcmd.sh [options] delete <name>      Delete a Helm release + PVCs
+./kcmd.sh [options] clean <namespace>  Force-clean a namespace
+./kcmd.sh [options] initsecret <ns>    Create a namespace
+./kcmd.sh [options] ssh <host>         Print a bastion-proxied ssh command
+```
 
-<pre>
-export REGION=""
-export USER_ARN=""
-export KEY=""
-export BASTION=""
-</pre>
+**Options**
 
-Configure a <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-profiles.html">AWS CLI profile</a> (if one has not already been created). From your terminal, run the following command. Change "PROFILENAME" to a unique profile name that you want to use with this project. AWS CLI will ask for the ACCESS and SECRET keys for your AWS IAM user as well as the region you want configured for the profile.
+| Flag | Description |
+|------|-------------|
+| `-y, --yes` | Skip confirmation prompts |
+| `--dry-run` | Print commands without running them |
+| `--region <name>` | AWS region (default: `us-east-1`) |
+| `-h, --help` | Show help |
 
-<pre>
-aws configure --profile PROFILENAME
-</pre>
+**Environment overrides**
 
-With your AWS CLI profile created, modify line 17 to reference the PROFILENAME you've created.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AWS_PROFILE` | prompt / `.kcmd/aws.profile` | AWS named profile |
+| `STACK_NAME` | prompt / `.kcmd/stack.<user>` | CloudFormation stack / cluster name |
+| `REGION` | `us-east-1` | AWS region |
+| `USER_ARN` | — | Also grant this IAM principal cluster-admin access |
+| `KUBECONFIG` | `.kcmd/<stack>.kubeconfig` | Kubeconfig path |
 
-<pre>
-export AWS_PROFILE=""
-</pre>
+## First run
 
-## Step 3: Connect to Kubernetes Dashboard
-With the kcmd.sh script properly configured, you can initialize a kubeconfig file by running the following command. Run this from the root of the directory that stores your kcmd.sh file.
+On first run, `kcmd.sh` prompts for an AWS profile and cluster/stack
+name and saves both to `.kcmd/` (gitignored, per-developer state) so
+you don't need to pass them again. `create cluster` also prompts once
+for the handful of `eks.yaml` parameters that have no sensible default
+(VPC ID, a private subnet, the cluster DNS zone, optionally a key pair)
+and saves them to `.kcmd/<stack>.params.json` — edit that file directly
+to set anything else (node type, node count, add-ons, ...) before
+re-running `create cluster`.
 
-<pre>
-./kcmd.sh init
-</pre>
+## Recommended flow
 
-This will generate the necessary config file that the kcmd.sh script uses to connect to your EKS cluster. With the kubeconfig file in place, run the following command to install the Kubernetes dashboard and open up a proxy to the cluster itself. Run this likewise from the roof of the directory that stores your kcmd.sh file.
+```bash
+# 1. Create the cluster (once per developer/environment)
+./kcmd.sh create cluster
 
-<pre>
+# 2. Confirm it's up
+./kcmd.sh status
+
+# 3. Access the dashboard
 ./kcmd.sh proxy
-</pre>
+# then open http://localhost:8080/#/overview?namespace=_all
 
-Keep the proxy running within your terminal (open another terminal window if you need to run additional commands) and access the Kubernetes dasboard by going to the following URL:
-
-<pre>
- http://localhost:8080/#/overview?namespace=_all
-</pre>
-
-<table>
-	<tr>
-		<td><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/install/kubernetes-dashboard-solodev-cms-eks.jpg" /></td>
-	</tr>
-</table>
+# 4. Tear it down when done
+./kcmd.sh delete cluster
+```

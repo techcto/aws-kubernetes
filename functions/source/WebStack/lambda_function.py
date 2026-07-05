@@ -1,134 +1,170 @@
+import base64
 import json
 import logging
-import boto3
-import subprocess
-import shlex
-import time
 import math
+import time
 from hashlib import md5
+
+import boto3
+import botocore.signers
+import urllib3
+import yaml
+from kubernetes import client as k8s_client
+from kubernetes import dynamic as k8s_dynamic
+from kubernetes.client import Configuration
 
 from crhelper import CfnResource
 
 logger = logging.getLogger(__name__)
 helper = CfnResource(json_logging=True, log_level="DEBUG")
+# Short, explicit timeouts everywhere a network call could otherwise hang -
+# without these, an unreachable endpoint fails after minutes instead of
+# seconds, burning through the whole Lambda timeout across a few retries
+# without ever surfacing a useful error.
+NET_TIMEOUT = urllib3.Timeout(connect=10, read=20)
+K8S_TIMEOUT = (10, 20)
+http = urllib3.PoolManager(timeout=NET_TIMEOUT, retries=False)
 
 try:
-    s3_client = boto3.client('s3')
     iam_client = boto3.client('iam')
-    kms_client = boto3.client('kms')
+    eks_client = boto3.client('eks')
+    sts_client = boto3.client('sts')
 except Exception as init_exception:
     helper.init_failure(init_exception)
 
-def run_command(command):
-    try:
-        logger.info(f"executing command: {command}")
-        output = subprocess.check_output(  # nosec B603
-            shlex.split(command), stderr=subprocess.STDOUT
-        ).decode("utf-8")
-        logger.info(output)
-    except subprocess.CalledProcessError as e:
-        logger.exception(
-            "Command failed with exit code %s, stderr: %s"
-            % (e.returncode, e.output.decode("utf-8"))
-        )
-        raise Exception(e.output.decode("utf-8"))
 
-    return output
-
-
-def create_kubeconfig(cluster_name):
-    run_command(
-        f"aws eks update-kubeconfig --name {cluster_name} --alias {cluster_name}"
+def get_bearer_token(cluster_name):
+    """Generates an EKS auth token the same way `aws eks get-token` does,
+    without needing the aws CLI - see the well-known STS presigned-URL scheme
+    used by aws-iam-authenticator / the AWS CLI's `eks get-token` command."""
+    session = boto3.session.Session()
+    region = session.region_name or eks_client.meta.region_name
+    sts = session.client('sts', region_name=region)
+    signer = botocore.signers.RequestSigner(
+        sts.meta.service_model.service_id, region, 'sts', 'v4',
+        session.get_credentials(), session.events,
     )
-    run_command(f"kubectl config use-context {cluster_name}")
+    params = {
+        'method': 'GET',
+        'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
+        'body': {},
+        'headers': {'x-k8s-aws-id': cluster_name},
+        'context': {},
+    }
+    signed_url = signer.generate_presigned_url(
+        params, region_name=region, expires_in=60, operation_name='',
+    )
+    token = base64.urlsafe_b64encode(signed_url.encode('utf-8')).decode('utf-8').rstrip('=')
+    return 'k8s-aws-v1.' + token
 
-def enable_weave():
-    logger.debug(run_command("kubectl delete ds aws-node -n kube-system"))
-    subprocess.check_output("curl --location -o /tmp/weave-net.yaml \"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')\"", shell=True)
-    logger.debug(run_command("kubectl apply -f /tmp/weave-net.yaml"))
 
-#Apply AWS Marketplace service account for launching paid container apps
-def enable_marketplace(cluster_name, namespace, role_name):
-    try:
-        logger.debug(run_command(f"kubectl create namespace {namespace}"))
-    except Exception as exception:
-        print("Namespace already exists")
-    
-    try:
-        ISSUER_URL = run_command(f"aws eks describe-cluster --name {cluster_name} --query cluster.identity.oidc.issuer --output text")
-        print(ISSUER_URL)
-        ISSUER_HOSTPATH = subprocess.check_output("echo \"" + ISSUER_URL + "\" | cut -f 3- -d'/'", shell=True).decode("utf-8")
-        print(ISSUER_HOSTPATH)
-        ACCOUNT_ID = run_command(f"aws sts get-caller-identity --query Account --output text")
-        print(ACCOUNT_ID)
-        irp_trust_policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {
-                        "Federated": "arn:aws:iam::{ACCOUNT_ID}:oidc-provider/{ISSUER_HOSTPATH}"
-                    },
-                    "Action": "sts:AssumeRoleWithWebIdentity",
-                    "Condition": {
-                        "StringEquals": {
-                            "{ISSUER_HOSTPATH}:sub": "system:serviceaccount:{namespace}:{role_name}"
-                        }
-                    }
-                }
-            ]
-        }
-        RoleName=role_name+"-"+namespace
-        iam_client.create_role(
-            RoleName=RoleName,
-            AssumeRolePolicyDocument=json.dumps(irp_trust_policy)
-        )
-    except Exception as exception:
-        print("Role already exists")
+def k8s_api_client(cluster_name):
+    cluster = eks_client.describe_cluster(name=cluster_name)['cluster']
+    ca_path = '/tmp/eks-ca.crt'
+    with open(ca_path, 'wb') as f:
+        f.write(base64.b64decode(cluster['certificateAuthority']['data']))
 
-    try:
-        aws_usage_policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Action": [
-                        "aws-marketplace:RegisterUsage"
-                    ],
-                    "Resource": "*",
-                    "Effect": "Allow"
-                }
-            ]
-        }
-        response = iam_client.create_policy(
-            PolicyName='AWSUsagePolicy-' + namespace,
-            PolicyDocument=json.dumps(aws_usage_policy)
-        )
-        iam_client.attach_role_policy(
-            RoleName=RoleName,
-            PolicyArn=response['Policy']['Arn']
-        )
-    except Exception as exception:
-        print("Policy already exists")
+    configuration = Configuration()
+    configuration.host = cluster['endpoint']
+    configuration.ssl_ca_cert = ca_path
+    configuration.api_key = {'authorization': 'Bearer ' + get_bearer_token(cluster_name)}
+    return k8s_client.ApiClient(configuration)
+
+
+def apply_manifest_url(api_client, url):
+    """Applies every document in a remote multi-doc YAML manifest, roughly
+    equivalent to `kubectl apply -f <url>`."""
+    dynamic_client = k8s_dynamic.DynamicClient(api_client)
+    body = http.request('GET', url, timeout=NET_TIMEOUT).data
+    for doc in yaml.safe_load_all(body):
+        if not doc:
+            continue
+        resource = dynamic_client.resources.get(api_version=doc['apiVersion'], kind=doc['kind'])
+        try:
+            resource.create(body=doc, namespace=doc.get('metadata', {}).get('namespace'),
+                             _request_timeout=K8S_TIMEOUT)
+        except k8s_dynamic.exceptions.ConflictError:
+            resource.patch(body=doc, namespace=doc.get('metadata', {}).get('namespace'),
+                            content_type='application/merge-patch+json', _request_timeout=K8S_TIMEOUT)
+
+
+def enable_marketplace(api_client, cluster_name, namespace, role_name):
+    core_v1 = k8s_client.CoreV1Api(api_client)
 
     try:
-        logger.debug(run_command(f"kubectl create sa {role_name} --namespace {namespace}"))
-        ROLE_ARN = run_command(f"aws iam get-role --role-name {RoleName} --query Role.Arn --output text")
-        print(ROLE_ARN)
-        logger.debug(run_command(f"kubectl annotate sa {role_name} eks.amazonaws.com/role-arn={ROLE_ARN} --namespace {namespace}"))
-    except Exception as exception:
-        print("There was an error.")
+        core_v1.create_namespace(k8s_client.V1Namespace(metadata=k8s_client.V1ObjectMeta(name=namespace)),
+                                  _request_timeout=K8S_TIMEOUT)
+    except k8s_client.exceptions.ApiException as e:
+        if e.status != 409:
+            raise
+        logger.info("Namespace already exists")
 
-def enable_solodev():
-    logger.debug(run_command("kubectl apply -f http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/admin-role.yaml"))
-    logger.debug(run_command("kubectl apply -f http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/storage-class.yaml"))
-    print("Get Access Token")
-    TOKEN = run_command("kubectl get secrets -n kube-system -o jsonpath=\"{.items[?(@.metadata.annotations['kubernetes\.io/service-account\.name']=='solodev-admin')].data.token}\"")
-    helper.Data['Token'] = TOKEN
+    issuer_url = eks_client.describe_cluster(name=cluster_name)['cluster']['identity']['oidc']['issuer']
+    issuer_hostpath = issuer_url.split('://', 1)[-1]
+    account_id = sts_client.get_caller_identity()['Account']
+    role_full_name = f"{role_name}-{namespace}"
+
+    irp_trust_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Federated": f"arn:aws:iam::{account_id}:oidc-provider/{issuer_hostpath}"},
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {f"{issuer_hostpath}:sub": f"system:serviceaccount:{namespace}:{role_name}"}
+                },
+            }
+        ],
+    }
+    try:
+        iam_client.create_role(RoleName=role_full_name, AssumeRolePolicyDocument=json.dumps(irp_trust_policy))
+    except iam_client.exceptions.EntityAlreadyExistsException:
+        logger.info("Role already exists")
+
+    aws_usage_policy = {
+        "Version": "2012-10-17",
+        "Statement": [{"Action": ["aws-marketplace:RegisterUsage"], "Resource": "*", "Effect": "Allow"}],
+    }
+    try:
+        policy = iam_client.create_policy(PolicyName=f'AWSUsagePolicy-{namespace}', PolicyDocument=json.dumps(aws_usage_policy))
+        iam_client.attach_role_policy(RoleName=role_full_name, PolicyArn=policy['Policy']['Arn'])
+    except iam_client.exceptions.EntityAlreadyExistsException:
+        logger.info("Policy already exists")
+
+    try:
+        core_v1.create_namespaced_service_account(
+            namespace, k8s_client.V1ServiceAccount(metadata=k8s_client.V1ObjectMeta(name=role_name)),
+            _request_timeout=K8S_TIMEOUT)
+    except k8s_client.exceptions.ApiException as e:
+        if e.status != 409:
+            raise
+
+    role_arn = iam_client.get_role(RoleName=role_full_name)['Role']['Arn']
+    core_v1.patch_namespaced_service_account(
+        role_name, namespace,
+        {"metadata": {"annotations": {"eks.amazonaws.com/role-arn": role_arn}}},
+        _request_timeout=K8S_TIMEOUT,
+    )
+
+
+def enable_solodev(api_client):
+    apply_manifest_url(api_client, "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/admin-role.yaml")
+    apply_manifest_url(api_client, "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/storage-class.yaml")
+
+    # Kubernetes 1.24+ no longer auto-creates a long-lived Secret for a
+    # ServiceAccount - request a token directly via the TokenRequest API.
+    core_v1 = k8s_client.CoreV1Api(api_client)
+    token_request = k8s_client.AuthenticationV1TokenRequest(spec=k8s_client.V1TokenRequestSpec())
+    response = core_v1.create_namespaced_service_account_token(
+        "solodev-admin", "kube-system", token_request, _request_timeout=K8S_TIMEOUT)
+    helper.Data['Token'] = response.status.token
+
 
 @helper.create
 @helper.update
 def create_handler(event, context):
-    create_kubeconfig(event["ResourceProperties"]["ClusterName"])
+    cluster_name = event["ResourceProperties"]["ClusterName"]
 
     interval = 5
     retry_timeout = (
@@ -137,22 +173,23 @@ def create_handler(event, context):
 
     while True:
         try:
+            api_client = k8s_api_client(cluster_name)
             outp = "Init Solodev"
-            if 'Weave' in event['ResourceProperties'].keys():
-                enable_weave()
             if 'Marketplace' in event['ResourceProperties'].keys():
-                enable_marketplace(event['ResourceProperties']['ClusterName'], event['ResourceProperties']['Namespace'], event['ResourceProperties']['ServiceRoleName'])
+                enable_marketplace(
+                    api_client, cluster_name,
+                    event['ResourceProperties']['Namespace'],
+                    event['ResourceProperties']['ServiceRoleName'],
+                )
             if 'Solodev' in event['ResourceProperties'].keys():
-                enable_solodev()
+                enable_solodev(api_client)
             break
-        except Exception:
+        except Exception as e:
             if retry_timeout < 1:
-                message = "Out of retries"
-                logger.error(message)
-                raise RuntimeError(message)
+                logger.exception("Out of retries")
+                raise RuntimeError(f"Out of retries: {e}")
             else:
-                logger.info("Retrying until timeout...")
-
+                logger.exception("Retrying after error")
                 time.sleep(interval)
                 retry_timeout = retry_timeout - interval
 
@@ -166,6 +203,7 @@ def create_handler(event, context):
         outp = "MD5-" + str(md5_digest)
     helper.Data.update(response_data)
     return outp
+
 
 def lambda_handler(event, context):
     props = event.get("ResourceProperties", {})

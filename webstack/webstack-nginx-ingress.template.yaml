@@ -7,10 +7,9 @@ Metadata:
   AWS::CloudFormation::Interface: 
     ParameterGroups: 
       - 
-        Label: 
+        Label:
           default: "Lambda Function"
-        Parameters: 
-        Parameters: 
+        Parameters:
           - ClusterName
 
 Parameters:
@@ -27,6 +26,11 @@ Resources:
       Namespace: ingress-nginx
       Repository: https://kubernetes.github.io/ingress-nginx
       Chart: ingress-nginx/ingress-nginx
+      # Verify against https://artifacthub.io/packages/helm/ingress-nginx/ingress-nginx
+      # before bumping - unlike the Bitnami charts, images here come from
+      # registry.k8s.io, which hasn't had a similar hosting disruption, but an
+      # unpinned chart still means an uncontrolled version drift on every deploy.
+      Version: '4.15.1'
       Name: ingress-nginx
       ValueYaml: !Sub |
         controller:
@@ -42,5 +46,3 @@ Resources:
             enabled: true
           metrics:
             enabled: true
-          hostNetwork: true
-          kind: DaemonSet

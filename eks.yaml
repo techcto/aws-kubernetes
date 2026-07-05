@@ -141,12 +141,13 @@ Parameters:
     Description: Choose "Unmanaged" to create an Auto Scaling group without using the EKS-managed node groups feature.
   NodeGroupOS:
     AllowedValues:
-      - 'Amazon Linux 2'
+      - 'Amazon Linux 2023'
       - 'Bottlerocket'
       - 'Windows'
-    Default: 'Amazon Linux 2'
-    Description: Operating system to use for node instances. Note that if you choose "Windows," an additional
-      Amazon Linux node group is created.
+    Default: 'Amazon Linux 2023'
+    Description: Operating system to use for node instances. Amazon Linux 2 is not offered -
+      AWS ended EKS-optimized AL2 AMI support on 2025-11-26 and AL2 itself reached end of
+      life on 2026-06-30.
     Type: String
   NodeVolumeSize:
     Default: 20
@@ -189,7 +190,7 @@ Parameters:
   KubernetesVersion:
     Type: String
     AllowedValues: ['1.36', '1.35', '1.34', '1.33', '1.32', '1.31']
-    Default: '1.34'
+    Default: '1.36'
   BastionRole:
     Type: String
     Default: ""
@@ -213,9 +214,8 @@ Parameters:
     Type: String
     Default: ""
     Description: >-
-      Extra arguments appended to /etc/eks/bootstrap.sh on each node, e.g. --kubelet-extra-args
-      '--max-pods=110' to raise pod density above the ENI-based default, or a custom flag
-      supported by your own AMI's bootstrap.sh fork.
+      A single extra kubelet flag applied to each node via the nodeadm NodeConfig, e.g.
+      --max-pods=110 to raise pod density above the ENI-based default.
   EKSEncryptSecrets:
     Type: String
     AllowedValues: [Enabled, Disabled]
@@ -281,35 +281,30 @@ Parameters:
     Type: String
     Default: ""
   
+  CloudOIDCUrl:
+    Type: String
+    Description: "Cloud's own OIDC issuer URL, for SSO login into the Dashboard - not to be confused with the EKS cluster's own OIDC provider (used for IRSA), which is a different thing entirely"
+    Default: ""
+
   CloudClientId:
     Type: String
-    Description: AWS Cognito App Id
+    Description: "Cloud's Keycloak client id for this cluster (not Cognito - Cloud's SSO identity provider is Keycloak)"
     Default: ""
 
   CloudClientSecret:
     Type: String
-    Description: AWS Cognito App Secret
-    Default: ""
-
-  CloudRedirectURI:
-    Type: String
-    Default: ""
-
-  CloudAuthorizeURL:
-    Type: String
-    Default: ""
-
-  CloudAccessToken:
-    Type: String
-    Default: ""
-
-  CloudKeySet:
-    Type: String
+    Description: "Cloud's Keycloak client secret for this cluster"
     Default: ""
 
   CloudScope:
     Type: String
-    Default: 'openid profile:read email:read'
+    Default: 'openid profile email'
+
+  SessionSigningKey:
+    Type: String
+    Description: "Key used to sign/verify the SSO session token exchanged between the Dashboard's auth and api services. Must be set to a real random value for SSO to work."
+    Default: ""
+    NoEcho: true
 
   ClusterZone:
     Description: This is the DNS Zone that for a single cluster
@@ -317,19 +312,22 @@ Parameters:
     Default: ""
 
 Mappings:
+  # Second-level keys must be alphanumeric (CloudFormation rejects spaces in
+  # Mappings attribute names) - NodeGroupOS's actual values ('Amazon Linux 2023',
+  # etc.) are translated to these via Conditions at the point of use.
   AmiTypeMap:
     Standard:
-      'Amazon Linux 2': { Value: AL2_x86_64 }
-      Bottlerocket: { Value: BOTTLEROCKET_x86_64 }
-      Windows: { Value: WINDOWS_CORE_2019_x86_64 }
+      AmazonLinux2023: AL2023_x86_64_STANDARD
+      Bottlerocket: BOTTLEROCKET_x86_64
+      Windows: WINDOWS_CORE_2019_x86_64
     ARM:
-      'Amazon Linux 2': { Value: AL2_ARM_64 }
-      Bottlerocket: { Value: BOTTLEROCKET_ARM_64 }
-      Windows: { Value: WINDOWS_CORE_2019_x86_64 }
+      AmazonLinux2023: AL2023_ARM_64_STANDARD
+      Bottlerocket: BOTTLEROCKET_ARM_64
+      Windows: WINDOWS_CORE_2019_x86_64
     GPU:
-      'Amazon Linux 2': { Value: AL2_x86_64_GPU }
-      Bottlerocket: { Value: BOTTLEROCKET_x86_64_NVIDIA }
-      Windows: { Value: WINDOWS_CORE_2019_x86_64 }
+      AmazonLinux2023: AL2023_x86_64_NVIDIA
+      Bottlerocket: BOTTLEROCKET_x86_64_NVIDIA
+      Windows: WINDOWS_CORE_2019_x86_64
 
 Conditions:
   BastionRole: !Not [ !Equals [ !Ref BastionRole, "" ] ]
@@ -347,16 +345,23 @@ Conditions:
   LoggingEnabled: !Equals [ !Ref EKSClusterLoggingTypes, Enabled ]
   EnableIamOidcProvider: !Equals [!Ref 'IamOidcProvider', 'Enabled']
   CreateNodeGroup: !Equals [ !Ref ManagedNodeGroup, 'Yes' ]
+  HasNodeBootstrapExtraArgs: !Not [ !Equals [ !Ref NodeBootstrapExtraArgs, "" ] ]
+  WindowsOS: !Equals [ !Ref NodeGroupOS, 'Windows' ]
+  BottlerocketOS: !Equals [ !Ref NodeGroupOS, 'Bottlerocket' ]
   3AZDeployment: !Not [!Equals [!Ref PrivateSubnet3ID, ""]]
   2AZDeployment: !Or
     - !Not [!Equals [!Ref PrivateSubnet2ID, ""]]
     - !Not [!Equals [!Ref PrivateSubnet3ID, ""]]
   CustomAmi: !Equals [!Ref CustomAmiId, 'Enabled']
-  EnableWeave: !Equals [!Ref 'ProvisionWeave', 'Enabled']
   AddUser: !Not [ !Equals [ !Ref AdditionalEKSAdminUserArn, "" ] ]
   AddRole: !Not [ !Equals [ !Ref AdditionalEKSAdminRoleArn, "" ] ]
   EnableNetwork: !Equals [!Ref 'ProvisionNetwork', 'Enabled']
-  EnableDashboard: !Equals [!Ref 'ProvisionDashboard', 'Enabled']
+  # Only actually install the Dashboard when SSO is configured - without a
+  # Cognito client id, the oauth2-proxy deployment behind it has nothing to
+  # authenticate against and is just a broken login screen.
+  EnableDashboard: !And
+    - !Equals [!Ref 'ProvisionDashboard', 'Enabled']
+    - !Not [!Equals [!Ref 'CloudClientId', '']]
   NoProxy: !Equals [!Ref HttpProxy, '']
 
 Resources:
@@ -586,30 +591,6 @@ Resources:
       AccessPolicies:
         - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
           AccessScope: { Type: cluster }
-  KubernetesGetAccessEntry:
-    Type: AWS::EKS::AccessEntry
-    Properties:
-      ClusterName: !Ref ControlPlane
-      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-get"
-      AccessPolicies:
-        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
-          AccessScope: { Type: cluster }
-  KubernetesResourceAccessEntry:
-    Type: AWS::EKS::AccessEntry
-    Properties:
-      ClusterName: !Ref ControlPlane
-      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-resource"
-      AccessPolicies:
-        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
-          AccessScope: { Type: cluster }
-  CallerAccessEntry:
-    Type: AWS::EKS::AccessEntry
-    Properties:
-      ClusterName: !Ref ControlPlane
-      PrincipalArn: !GetAtt CallerArn.Arn
-      AccessPolicies:
-        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
-          AccessScope: { Type: cluster }
   RootAccessEntry:
     Type: AWS::EKS::AccessEntry
     Properties:
@@ -668,13 +649,6 @@ Resources:
               - Effect: Allow
                 Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
                 Resource: '*'
-        - PolicyName: get-caller-arn
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: sts:GetCallerIdentity
-                Resource: '*'
         - PolicyName: cleanup-load-balancers
           PolicyDocument:
             Version: '2012-10-17'
@@ -685,49 +659,6 @@ Resources:
                   - elasticloadbalancing:DescribeTags
                   - elasticloadbalancing:DeleteLoadBalancer
                 Resource: '*'
-
-  GetCallerArnFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      Runtime: python3.13
-      Handler: index.handler
-      Role: !GetAtt CustomResourceHelperRole.Arn
-      Timeout: 30
-      Code:
-        ZipFile: |
-          import boto3
-          import json
-          import urllib.request
-
-          def send(event, context, status, data=None, physical_id=None, reason=None):
-              body = json.dumps({
-                  "Status": status,
-                  "Reason": reason or "See CloudWatch Logs",
-                  "PhysicalResourceId": physical_id or context.log_stream_name,
-                  "StackId": event["StackId"],
-                  "RequestId": event["RequestId"],
-                  "LogicalResourceId": event["LogicalResourceId"],
-                  "Data": data or {},
-              }).encode("utf-8")
-              req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT")
-              req.add_header("Content-Type", "")
-              req.add_header("Content-Length", str(len(body)))
-              urllib.request.urlopen(req)
-
-          def handler(event, context):
-              try:
-                  if event["RequestType"] == "Delete":
-                      send(event, context, "SUCCESS")
-                      return
-                  arn = boto3.client("sts").get_caller_identity()["Arn"]
-                  send(event, context, "SUCCESS", {"Arn": arn}, physical_id=arn)
-              except Exception as e:
-                  send(event, context, "FAILED", reason=str(e))
-
-  CallerArn:
-    Type: AWS::CloudFormation::CustomResource
-    Properties:
-      ServiceToken: !GetAtt GetCallerArnFunction.Arn
 
   CleanupLoadBalancersFunction:
     Type: AWS::Lambda::Function
@@ -743,9 +674,14 @@ Resources:
           import urllib.request
 
           def send(event, context, status, data=None, physical_id=None, reason=None):
+              # CloudFormation rejects custom resource responses over ~4096 bytes for
+              # Reason - an unusually large exception message (e.g. from a busy shared
+              # VPC with many load balancers) would otherwise fail the response PUT
+              # itself with "Response object is too long", masking the real error.
+              reason = (reason or "See CloudWatch Logs")[:900]
               body = json.dumps({
                   "Status": status,
-                  "Reason": reason or "See CloudWatch Logs",
+                  "Reason": reason,
                   "PhysicalResourceId": physical_id or context.log_stream_name,
                   "StackId": event["StackId"],
                   "RequestId": event["RequestId"],
@@ -766,7 +702,7 @@ Resources:
                       send(event, context, "SUCCESS")
                       return
                   cluster_name = event["ResourceProperties"]["ClusterName"]
-                  elbv2 = boto3.client("elasticloadbalancing")
+                  elbv2 = boto3.client("elbv2")
                   paginator = elbv2.get_paginator("describe_load_balancers")
                   for page in paginator.paginate():
                       for lb in page["LoadBalancers"]:
@@ -786,7 +722,7 @@ Resources:
     Type: AWS::CloudFormation::CustomResource
     Properties:
       ServiceToken: !GetAtt CleanupLoadBalancersFunction.Arn
-      ClusterName: !Ref AWS::StackName
+      ClusterName: !Ref ControlPlane
 
   ClusterOIDCProvider:
     Condition: EnableIamOidcProvider
@@ -805,22 +741,48 @@ Resources:
   # (NodeGroupType: Unmanaged) is not implemented natively here - it would need its own
   # AutoScalingGroup + LaunchTemplate stack rather than AWS::EKS::Nodegroup.
 
+  # Only set UserData when there's actually a kubelet flag to add - otherwise
+  # omit it so EKS's own managed-nodegroup bootstrap handles everything.
+  # Uses the AL2023 nodeadm NodeConfig format (not /etc/eks/bootstrap.sh,
+  # which AL2023 AMIs don't ship - that only exists on the now EOL AL2 AMIs).
+  # Weave CNI is not wired up here: it required a patched bootstrap.sh on a
+  # custom AL2 AMI, which has no nodeadm equivalent and is not supported by
+  # the default AmiType path.
   NodeLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
       LaunchTemplateData:
         ImageId: !If [ CustomAmi, !Ref CustomAmiId, !Ref "AWS::NoValue" ]
         KeyName: !If [ UseKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue" ]
-        UserData: !Base64
-          Fn::Sub:
-            - |
-              #!/bin/bash
-              /etc/eks/bootstrap.sh ${ClusterName} ${BootArgs}
-            - ClusterName: !Ref AWS::StackName
-              BootArgs: !Join
-                - " "
-                - - !If [ EnableWeave, "--enable-weave 'true'", "" ]
-                  - !Ref NodeBootstrapExtraArgs
+        # DiskSize can't be set on AWS::EKS::Nodegroup once a LaunchTemplate is
+        # attached - EKS requires it here instead. /dev/xvda is correct for
+        # AL2023/AL2/Bottlerocket AMIs; Bottlerocket actually has a separate
+        # data volume this doesn't resize.
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: !Ref NodeVolumeSize
+        UserData: !If
+          - HasNodeBootstrapExtraArgs
+          - !Base64
+              Fn::Sub:
+                - |
+                  MIME-Version: 1.0
+                  Content-Type: multipart/mixed; boundary="//"
+
+                  --//
+                  Content-Type: application/node.eks.aws
+
+                  ---
+                  apiVersion: node.eks.aws/v1alpha1
+                  kind: NodeConfig
+                  spec:
+                    kubelet:
+                      flags:
+                        - "${ExtraArgs}"
+                  --//--
+                - ExtraArgs: !Ref NodeBootstrapExtraArgs
+          - !Ref "AWS::NoValue"
 
   NodeGroup:
     Condition: CreateNodeGroup
@@ -844,8 +806,13 @@ Resources:
       AmiType: !If
         - CustomAmi
         - CUSTOM
-        - !FindInMap [ AmiTypeMap, !Ref NodeInstanceFamily, !Ref NodeGroupOS, Value ]
-      DiskSize: !Ref NodeVolumeSize
+        - !If
+          - WindowsOS
+          - !FindInMap [ AmiTypeMap, !Ref NodeInstanceFamily, Windows ]
+          - !If
+            - BottlerocketOS
+            - !FindInMap [ AmiTypeMap, !Ref NodeInstanceFamily, Bottlerocket ]
+            - !FindInMap [ AmiTypeMap, !Ref NodeInstanceFamily, AmazonLinux2023 ]
       ScalingConfig:
         MinSize: 1
         MaxSize: !Ref MaxNumberOfNodes
@@ -856,9 +823,120 @@ Resources:
       Labels:
         Name: !Sub "Nodegroup-${AWS::StackName}"
 
+  # Generic "sleep N seconds then succeed" custom resource, reused at two
+  # points where a resource's own CREATE_COMPLETE doesn't mean what depends on
+  # it next can safely proceed yet:
+  #  - after NodeGroup: EKS ACTIVE doesn't mean a pod can already schedule,
+  #    pull its image, and pass readiness on the new node
+  #  - after LoadBalancerControllerHelmChart: "helm install" returning doesn't
+  #    mean the controller pod (and its admission webhook) is actually ready -
+  #    installing any other chart that creates a Service in that window fails
+  #    with "no endpoints available for service aws-load-balancer-webhook-service"
+  # See: https://github.com/kubernetes-sigs/aws-load-balancer-controller/issues/4140
+  SettleWaitFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt CustomResourceHelperRole.Arn
+      Timeout: 200
+      Code:
+        ZipFile: |
+          import json
+          import time
+          import urllib.request
+
+          def send(event, context, status, reason=None):
+              reason = (reason or "See CloudWatch Logs")[:900]
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": reason,
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": {},
+              }).encode("utf-8")
+              req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT")
+              req.add_header("Content-Type", "")
+              req.add_header("Content-Length", str(len(body)))
+              urllib.request.urlopen(req)
+
+          def handler(event, context):
+              try:
+                  if event["RequestType"] != "Delete":
+                      time.sleep(int(event["ResourceProperties"].get("Seconds", 60)))
+                  send(event, context, "SUCCESS")
+              except Exception as e:
+                  send(event, context, "FAILED", reason=str(e))
+
+  NodeGroupSettleWait:
+    Condition: CreateNodeGroup
+    DependsOn: NodeGroup
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SettleWaitFunction.Arn
+      Seconds: 120
+
+  # Required for the EKS-managed external-dns and aws-ebs-csi-driver add-ons
+  # to authenticate to AWS via a PodIdentityAssociation instead of IRSA.
+  PodIdentityAgentAddon:
+    Condition: CreateNodeGroup
+    DependsOn: NodeGroupSettleWait
+    Type: AWS::EKS::Addon
+    Properties:
+      AddonName: eks-pod-identity-agent
+      ClusterName: !Ref ControlPlane
+      ResolveConflicts: OVERWRITE
+
+  # The chart-applied StorageClasses (charts/network/templates/storage-class.yaml)
+  # that use provisioner "ebs.csi.aws.com" need this addon to actually work -
+  # the older in-tree "kubernetes.io/aws-ebs" provisioner was removed from
+  # Kubernetes entirely as of 1.23, so CSI is the only option on any version
+  # this template supports.
+  EBSCSIDriverPodIdentityRole:
+    Condition: CreateNodeGroup
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: pods.eks.amazonaws.com }
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+
+  EBSCSIDriverPodIdentityAssociation:
+    Condition: CreateNodeGroup
+    Type: AWS::EKS::PodIdentityAssociation
+    Properties:
+      ClusterName: !Ref ControlPlane
+      Namespace: kube-system
+      ServiceAccount: ebs-csi-controller-sa
+      RoleArn: !GetAtt EBSCSIDriverPodIdentityRole.Arn
+
+  EBSCSIDriverAddon:
+    Condition: CreateNodeGroup
+    DependsOn: EBSCSIDriverPodIdentityAssociation
+    Type: AWS::EKS::Addon
+    Properties:
+      AddonName: aws-ebs-csi-driver
+      ClusterName: !Ref ControlPlane
+      ResolveConflicts: OVERWRITE
+
+  LoadBalancerControllerSettleWait:
+    Condition: EnableLoadBalancerController
+    DependsOn: LoadBalancerControllerHelmChart
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SettleWaitFunction.Arn
+      Seconds: 60
+
   LoadBalancerControllerIAMRole:
     Condition: EnableLoadBalancerController
-    DependsOn: NodeGroup
     Type: AWS::IAM::Role
     Metadata:
       cfn-lint:
@@ -910,6 +988,7 @@ Resources:
                 - 'elasticloadbalancing:DescribeLoadBalancers'
                 - 'elasticloadbalancing:DescribeLoadBalancerAttributes'
                 - 'elasticloadbalancing:DescribeListeners'
+                - 'elasticloadbalancing:DescribeListenerAttributes'
                 - 'elasticloadbalancing:DescribeListenerCertificates'
                 - 'elasticloadbalancing:DescribeSSLPolicies'
                 - 'elasticloadbalancing:DescribeRules'
@@ -997,10 +1076,6 @@ Resources:
                 - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:targetgroup/*/*'
                 - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:loadbalancer/net/*/*'
                 - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:loadbalancer/app/*/*'
-              Condition:
-                'Null':
-                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'true'
-                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
             - Effect: Allow
               Action:
                 - 'elasticloadbalancing:AddTags'
@@ -1040,10 +1115,20 @@ Resources:
 
   LoadBalancerControllerHelmChart:
     Condition: EnableLoadBalancerController
+    # Needs a running, settled node to schedule its pod onto before its own
+    # admission webhook can become ready - without this, the Helm install can
+    # start as soon as the cluster API is reachable, well before any node
+    # exists or has had time to actually run a pod on it. Also needs
+    # HelmAccessEntry to still exist on *delete* (helm uninstall re-auths to
+    # the cluster) - without this dependency, CFN is free to tear down the
+    # access entry before this resource's own delete handler runs, which
+    # fails with a Kubernetes auth error ("the server has asked for the
+    # client to provide credentials").
+    DependsOn: [ NodeGroupSettleWait, HelmAccessEntry ]
     Type: "AWSQS::Kubernetes::Helm"
     Metadata: { cfn-lint: { config: { ignore_checks: [ E3012 ] } } }
     Properties:
-      ClusterID: !Ref AWS::StackName
+      ClusterID: !Ref ControlPlane
       Namespace: kube-system
       Name: aws-load-balancer-controller
       Repository: https://aws.github.io/eks-charts
@@ -1089,7 +1174,6 @@ Resources:
   # must be vendored directly into functions/packages/WebStack/lambda.zip instead.
   # See functions/source/WebStack/README.md for how to build that bundle.
   WebStackLambda:
-    DependsOn: LoadBalancerStack
     Type: AWS::Lambda::Function
     Properties:
       Handler: lambda_function.lambda_handler
@@ -1103,34 +1187,32 @@ Resources:
       Environment:
         Variables:
           KUBECONFIG: /tmp/.kube/config
-          # kubectl/aws binaries are vendored into the deployment package's bin/ dir
-          # (see functions/source/WebStack/README.md) rather than provided by a layer.
-          PATH: /var/lang/bin:/usr/local/bin:/usr/bin/:/bin:/opt/bin:/var/task/bin
       VpcConfig:
+        # Private subnets only - Lambda ENIs never get a public IP, so an ENI
+        # placed in a public subnet (routed via an Internet Gateway, not a NAT
+        # gateway) has no outbound internet access at all. Mixing public
+        # subnets in here caused intermittent ConnectTimeoutErrors reaching
+        # the EKS API depending on which subnet the ENI happened to land in.
         SecurityGroupIds: [!Ref EKSLambdaSecurityGroup]
         SubnetIds: !If
-          - EnablePublicSubnets
+          - 3AZDeployment
+          - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]
           - !If
-            - 3AZDeployment
-            - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID, !Ref PublicSubnet3ID ]
-            - !If
-              - 2AZDeployment
-              - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PublicSubnet1ID, !Ref PublicSubnet2ID ]
-              - [ !Ref PrivateSubnet1ID, !Ref PublicSubnet1ID ]
-          - !If
-            - 3AZDeployment
-            - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]
-            - !If
-              - 2AZDeployment
-              - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]
-              - [ !Ref PrivateSubnet1ID ]
+            - 2AZDeployment
+            - [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]
+            - [ !Ref PrivateSubnet1ID ]
   WebStack:
     Type: "AWS::CloudFormation::Stack"
-    DependsOn: WebStackLambda
+    # Same reasoning as LoadBalancerControllerHelmChart: nginx-ingress/external-dns/
+    # dashboard all need a node to schedule onto before their Helm installs can succeed.
+    # PodIdentityAgentAddon must be running before external-dns's PodIdentityAssociation
+    # can be created. HelmAccessEntry must outlive WebStack's nested Helm resources on
+    # delete too - see the comment on LoadBalancerControllerHelmChart.
+    DependsOn: [ WebStackLambda, LoadBalancerControllerSettleWait, PodIdentityAgentAddon, HelmAccessEntry ]
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
       Parameters:
-        ClusterName: !Ref AWS::StackName
+        ClusterName: !Ref ControlPlane
         ClusterZone: !Ref ClusterZone
         WebStackArn: !GetAtt WebStackLambda.Arn
         AdminEmail: !Ref AdminEmail
@@ -1146,16 +1228,13 @@ Resources:
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
       Parameters:
-        ClusterName: !Ref AWS::StackName
+        ClusterName: !Ref ControlPlane
         ClusterZone: !Ref ClusterZone
         CloudClientId: !Ref CloudClientId
         CloudClientSecret: !Ref CloudClientSecret
-        CloudRedirectURI: !Ref CloudRedirectURI
-        CloudAuthorizeURL: !Ref CloudAuthorizeURL
-        CloudAccessToken: !Ref CloudAccessToken
-        CloudKeySet: !Ref CloudKeySet
-        CloudKeySet: !Ref CloudScope
-        OIDCUrl: !GetAtt ControlPlane.OpenIdConnectIssuerUrl
+        CloudScope: !Ref CloudScope
+        CloudOIDCUrl: !Ref CloudOIDCUrl
+        SessionSigningKey: !Ref SessionSigningKey
 
 #============================================================================#
 # Outputs

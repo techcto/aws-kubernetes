@@ -16,3 +16,81 @@ subjects:
 - kind: ServiceAccount
   name: solodev-admin
   namespace: kube-system
+---
+# Lets the dashboard's api service authenticate to the k8s API as itself (a
+# fixed, low-privilege identity) but act on behalf of the Keycloak-SSO'd
+# end user via Impersonate-User/Impersonate-Group headers - the actual
+# native Kubernetes mechanism for this, since EKS's managed control plane
+# doesn't support trusting an arbitrary external OIDC provider directly.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dashboard-api
+  namespace: kubernetes-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dashboard-impersonator
+rules:
+  - apiGroups: [""]
+    resources: ["users", "groups"]
+    verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dashboard-impersonator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dashboard-impersonator
+subjects:
+  - kind: ServiceAccount
+    name: dashboard-api
+    namespace: kubernetes-dashboard
+---
+# What an impersonated "view"/"edit"/"admin" group is actually allowed to do,
+# using Kubernetes' own built-in user-facing ClusterRoles (shipped by default
+# on every cluster) rather than hand-rolled ones. The group name here must
+# exactly match the Impersonate-Group value the auth service sets, which in
+# turn matches the Keycloak client role name (see KeycloakService::ROLE_*)
+# and Cloud's ClusterMember::getKubernetesRole() mapping.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sso-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: Group
+    name: view
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sso-edit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  - kind: Group
+    name: edit
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sso-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: Group
+    name: admin
+    apiGroup: rbac.authorization.k8s.io

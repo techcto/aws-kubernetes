@@ -1,30 +1,27 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
-Description: "Deploys the Kubernetes Dashboard into an existing kubernetes cluster (qs-1qde66ffn)"
+Description: "Deploys the techcto/kubernetes-ui Dashboard (with native Keycloak OIDC/SSO) into an existing kubernetes cluster"
 
-Metadata: 
+Metadata:
 
-  AWS::CloudFormation::Interface: 
-    ParameterGroups: 
-      - 
-        Label: 
-          default: "Lambda Functions"
-        Parameters: 
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Dashboard"
+        Parameters:
           - ClusterName
           - ClusterZone
           - Namespace
-      - 
-        Label: 
-          default: "Optional: SSO Configuration"
-        Parameters: 
-          - OIDCUrl
+      -
+        Label:
+          default: "Optional: SSO Configuration (Keycloak)"
+        Parameters:
+          - CloudOIDCUrl
           - CloudClientId
           - CloudClientSecret
-          - CloudRedirectURI
-          - CloudAuthorizeURL
-          - CloudAccessToken
-          - CloudKeySet
           - CloudScope
+          - SessionSigningKey
 
 Parameters:
 
@@ -40,40 +37,34 @@ Parameters:
     Type: String
     Default: ""
 
-  OIDCUrl:
+  CloudOIDCUrl:
     Type: String
-    Description: "OIDC Url format: https://oidc.eks:<region>.amazonaws.com/id/<providerid>"
-    Default: ''
+    Description: "Cloud's own OIDC issuer URL, for SSO login into the Dashboard - not to be confused with the EKS cluster's own OIDC provider (used for IRSA), which is a different thing entirely"
+    Default: ""
 
   CloudClientId:
     Type: String
-    Description: AWS Cognito App Id
-    Default: ''
+    Description: "Cloud's Keycloak client id for this cluster"
+    Default: ""
 
   CloudClientSecret:
     Type: String
-    Description: AWS Cognito App Secret
-    Default: ''
-
-  CloudRedirectURI:
-    Type: String
-    Default: '/oauth2/callback'
-
-  CloudAuthorizeURL:
-    Type: String
-    Default: ''
-
-  CloudAccessToken:
-    Type: String
-    Default: ''
-
-  CloudKeySet:
-    Type: String
-    Default: ''
+    Description: "Cloud's Keycloak client secret for this cluster"
+    Default: ""
 
   CloudScope:
     Type: String
-    Default: 'openid profile:read email:read'
+    Default: "openid profile email"
+
+  SessionSigningKey:
+    Type: String
+    Description: "Key used to sign/verify the SSO session token exchanged between the auth and api services. Must be set to a real random value for SSO to work - the dashboard will still deploy without it, but SSO login will not."
+    Default: ""
+    NoEcho: true
+
+Conditions:
+
+  HasSso: !Not [!Equals [!Ref CloudClientId, ""]]
 
 Resources:
 
@@ -83,23 +74,77 @@ Resources:
       ClusterID: !Ref ClusterName
       Namespace: !Ref Namespace
       Repository: "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts"
-      Chart: solodev/kubernetes-dashboard
+      Chart: techcto/kubernetes-dashboard
       Name: kubernetes-dashboard
-      Version: 1.1
-      ValueYaml: !Sub |
-        provider:
-          clientid: ${CloudClientId}
-          clientsecret: ${CloudClientSecret}
-          redirecturl: ${CloudRedirectURI}
-          loginurl: ${CloudAuthorizeURL}
-          redeemurl: ${CloudAccessToken}
-          oidcjwksurl: ${CloudKeySet}
-          scope: ${CloudScope}
-          oidcissuerurl: ${OIDCUrl}
-          domain: ${ClusterZone}
+      Version: 7.14.0
+      ValueYaml: !If
+        - HasSso
+        - !Sub |
+            app:
+              ingress:
+                enabled: true
+                hosts:
+                  - ${AWS::StackName}.${ClusterZone}
+                ingressClassName: nginx
+                issuer:
+                  name: letsencrypt-prod
+                  scope: cluster
+            auth:
+              image:
+                repository: spacemade/kubernetes-ui-auth
+                tag: latest
+              containers:
+                args:
+                  - --v=1
+                  - --oidc-issuer-url=${CloudOIDCUrl}
+                  - --oidc-client-id=${CloudClientId}
+                  - --oidc-client-secret=${CloudClientSecret}
+                  - --oidc-redirect-url=https://${AWS::StackName}.${ClusterZone}/api/v1/oidc/callback
+                  - --oidc-scopes=${CloudScope}
+                  - --session-signing-key=${SessionSigningKey}
+            api:
+              image:
+                repository: spacemade/kubernetes-ui-api
+                tag: latest
+              containers:
+                args:
+                  - --v=1
+                  - --session-signing-key=${SessionSigningKey}
+            web:
+              image:
+                repository: spacemade/kubernetes-ui-web
+                tag: latest
+        - !Sub |
+            app:
+              ingress:
+                enabled: true
+                hosts:
+                  - ${AWS::StackName}.${ClusterZone}
+                ingressClassName: nginx
+                issuer:
+                  name: letsencrypt-prod
+                  scope: cluster
+            auth:
+              image:
+                repository: spacemade/kubernetes-ui-auth
+                tag: latest
+              containers:
+                args:
+                  - --v=1
+            api:
+              image:
+                repository: spacemade/kubernetes-ui-api
+                tag: latest
+              containers:
+                args:
+                  - --v=1
+            web:
+              image:
+                repository: spacemade/kubernetes-ui-web
+                tag: latest
 
 Outputs:
-    
-    AdminUrl: 
-        Description: Point your DNS to this CNAME.
-        Value: !Join ["", [ !Ref "AWS::StackName", ".", !Ref ClusterZone ]]
+
+  AdminUrl:
+    Description: Point your DNS to this CNAME.
+    Value: !Join ["", [!Ref "AWS::StackName", ".", !Ref ClusterZone]]

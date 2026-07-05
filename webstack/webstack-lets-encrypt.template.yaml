@@ -1,18 +1,16 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
-Description: "Deploys the Lets Encrypt helm chart into an existing kubernetes cluster"
+Description: "Enables the cert-manager EKS add-on and deploys the Let's Encrypt ClusterIssuer chart into an existing kubernetes cluster"
 
 Metadata: 
 
   AWS::CloudFormation::Interface: 
     ParameterGroups: 
       - 
-        Label: 
+        Label:
           default: "Config"
-        Parameters: 
-        Parameters: 
+        Parameters:
           - ClusterName
-          - CertManagerRepoUrl
           - LetsEncryptRepoUrl
           - AdminEmail
 
@@ -20,10 +18,6 @@ Parameters:
 
   ClusterName:
     Type: String
-
-  CertManagerRepoUrl:
-    Type: String
-    Default: "https://charts.jetstack.io"
 
   LetsEncryptRepoUrl:
     Type: String
@@ -34,20 +28,23 @@ Parameters:
 
 Resources:
 
+  # AWS-managed add-on - handles CRDs itself and stays on a current, EKS-tested
+  # version (v1.20.2 vs. the 1.7.2 the Helm chart was pinned to). No pod
+  # identity/IRSA needed - Let's Encrypt is issued via HTTP01 through the
+  # ingress, not a Route53 DNS01 solver.
   CertManager:
-    Type: "AWSQS::Kubernetes::Helm"
+    Type: AWS::EKS::Addon
     Properties:
-      ClusterID: !Ref ClusterName
-      Repository: !Ref CertManagerRepoUrl
-      Chart: jetstack/cert-manager
-      Version: '1.7.2'
-      Name: cert-manager
-      Namespace: cert-manager
-      ValueYaml: !Sub |
-        installCRDs: true
-        webhook:
-          securePort: 10251
-          hostNetwork: true
+      AddonName: cert-manager
+      ClusterName: !Ref ClusterName
+      ResolveConflicts: OVERWRITE
+      ConfigurationValues: |
+        {
+          "webhook": {
+            "securePort": 10251,
+            "hostNetwork": true
+          }
+        }
 
   LetsEncrypt:
     DependsOn: CertManager

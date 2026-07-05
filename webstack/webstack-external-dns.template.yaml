@@ -1,15 +1,15 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
-Description: "Deploys the External DNS helm chart into an existing kubernetes cluster (qs-1qde66ffn)"
+Description: "Enables the AWS-managed external-dns EKS add-on on an existing kubernetes cluster"
 
-Metadata: 
+Metadata:
 
-  AWS::CloudFormation::Interface: 
-    ParameterGroups: 
-      - 
-        Label: 
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
           default: "EKS Cluster"
-        Parameters: 
+        Parameters:
           - ClusterName
 
 Parameters:
@@ -19,20 +19,41 @@ Parameters:
 
 Resources:
 
-  ExternalDNS:
-    Type: "AWSQS::Kubernetes::Helm"
+  # AWS-managed add-on - images come from AWS's own registry rather than the
+  # Bitnami Helm chart previously used here, which stopped resolving after
+  # Bitnami moved most of its free-tier images off docker.io/bitnami/* in 2025.
+  ExternalDNSPodIdentityRole:
+    Type: AWS::IAM::Role
     Properties:
-      ClusterID: !Ref ClusterName
-      Namespace: external-dns
-      Repository: https://charts.bitnami.com/bitnami
-      Chart: bitnami/external-dns
-      Name: external-dns
-      ValueYaml: !Sub |
-        logLevel: debug
-        policy: sync
-        rbac:
-          create: true
-        aws:
-          zoneType: public
-        txtOwnerId: ${ClusterName}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: pods.eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonRoute53FullAccess
 
+  ExternalDNSPodIdentityAssociation:
+    Type: AWS::EKS::PodIdentityAssociation
+    Properties:
+      ClusterName: !Ref ClusterName
+      Namespace: kube-system
+      ServiceAccount: external-dns
+      RoleArn: !GetAtt ExternalDNSPodIdentityRole.Arn
+
+  ExternalDNS:
+    DependsOn: ExternalDNSPodIdentityAssociation
+    Type: AWS::EKS::Addon
+    Properties:
+      AddonName: external-dns
+      ClusterName: !Ref ClusterName
+      ResolveConflicts: OVERWRITE
+      ConfigurationValues: !Sub |
+        {
+          "policy": "sync",
+          "txtOwnerId": "${ClusterName}"
+        }

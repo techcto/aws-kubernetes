@@ -9,44 +9,30 @@ layers this used to depend on came from the now-retired AWS Quick Start
 shared resources).
 
 `eks.yaml` sets `PATH` to include `/var/task/bin`, so `kubectl`/`aws`
-just need to land at `functions/source/WebStack/bin/kubectl` and
-`functions/source/WebStack/bin/aws` before running `./cmd.sh lambda`.
+need to land there inside the deployment package.
 
-## Building the bin/ bundle
+## Building
 
-Both binaries must be Linux x86_64 (this Lambda runs on `python3.13`,
-`x86_64` architecture) - build them in a container matching that
-runtime rather than downloading platform-specific binaries on a dev
-machine, since a Windows/macOS download will not run in Lambda.
+From the repo root:
 
 ```sh
-docker run --rm -v "$PWD:/out" -w /out public.ecr.aws/lambda/python:3.13 bash -c '
-  set -euo pipefail
-  mkdir -p bin
-
-  # kubectl - single static binary
-  KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
-  curl -sL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o bin/kubectl
-  chmod +x bin/kubectl
-
-  # AWS CLI v2 - unpack the official installer, keep only the runnable dist/
-  curl -sL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-  cd /tmp && unzip -q awscliv2.zip && cd -
-  cp -r /tmp/aws/dist bin/aws-dist
-  ln -sf aws-dist/aws bin/aws
-'
+./cmd.sh lambda
 ```
 
-Run this from `functions/source/WebStack/`. Verify both work before
-packaging:
+This does everything inside a container matching the Lambda runtime
+(`public.ecr.aws/lambda/python:3.13`, `x86_64`) — fetches `kubectl` and
+AWS CLI v2 into `bin/` if they're not already there, then zips the whole
+directory into `functions/packages/WebStack/lambda.zip`. Requires Docker.
 
-```sh
-docker run --rm -v "$PWD:/var/task" -w /var/task public.ecr.aws/lambda/python:3.13 \
-  bash -c 'PATH=/var/task/bin:$PATH kubectl version --client && PATH=/var/task/bin:$PATH aws --version'
-```
-
-Then run `./cmd.sh lambda` from the repo root as usual to zip everything
-(including `bin/`) into `functions/packages/WebStack/lambda.zip`.
+It always runs in Docker, even on Linux/macOS: zipping on the host can
+silently drop the executable bit (NTFS has no such concept at all, and
+even some Linux/macOS setups can lose it through a Docker bind mount) —
+producing a zip that looks fine but fails at runtime the moment Lambda
+tries to exec `kubectl`/`aws`, with no error until then. Building and
+zipping in the same container sidesteps that entirely.
 
 `bin/` is gitignored - each contributor (or CI) rebuilds it locally
-rather than committing ~50-80MB of vendored binaries.
+rather than committing ~50-80MB of vendored binaries. `./cmd.sh lambda`
+only re-fetches the binaries if `bin/kubectl` and `bin/aws-dist/aws`
+aren't already there, so re-runs after just editing `lambda_function.py`
+are fast.

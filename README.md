@@ -29,8 +29,12 @@ per-region resources, both of which were retired in 2024–2025.
   - cert-manager + Let's Encrypt
   - Kubernetes Dashboard
   - A small custom Lambda-backed resource (`functions/source/WebStack`)
-    for cluster-internal setup (Weave CNI toggle, Solodev network/token
-    provisioning)
+    for cluster-internal setup (Solodev network/token provisioning)
+  - RBAC for SSO login into the Dashboard: a `dashboard-api` ServiceAccount
+    allowed to impersonate users/groups, plus ClusterRoleBindings mapping
+    Keycloak's `view`/`edit`/`admin` client roles onto Kubernetes' own
+    built-in `view`/`edit`/`cluster-admin` ClusterRoles (see
+    `charts/network/templates/admin-role.yaml`)
 
 ## Repository layout
 
@@ -44,11 +48,6 @@ per-region resources, both of which were retired in 2024–2025.
 | `bin/eks.json` | Local, untracked CloudFormation parameters file for `eks.yaml` (see `deploy.sh`) |
 | `kcmd.sh` | Interactive CLI to create/delete the cluster and manage it day-to-day (see `pages/kcmd.md`) — the CloudFormation-based counterpart to this org's `eksctl`-based `ekscli.sh` |
 | `cmd.sh` | All build/deploy/publish commands (see below) |
-
-`datadog`, `solodev-cms`, and `wordpress` Helm charts previously lived
-under `charts/` too; they've moved out to a separate location since
-they're workload charts installed later from the main Solodev Cloud app,
-not part of standing up the cluster itself.
 
 ## Prerequisites
 

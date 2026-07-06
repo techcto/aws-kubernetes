@@ -17,17 +17,24 @@ subjects:
   name: solodev-admin
   namespace: kube-system
 ---
+# This manifest is applied via NetworkStack's Solodev custom resource, which
+# runs before DashboardStack creates the kubernetes-dashboard namespace via
+# Helm - the namespace must be created here first or the ServiceAccount
+# below fails with "namespaces \"kubernetes-dashboard\" not found".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubernetes-dashboard
+---
 # Lets the dashboard's api service authenticate to the k8s API as itself (a
 # fixed, low-privilege identity) but act on behalf of the Keycloak-SSO'd
 # end user via Impersonate-User/Impersonate-Group headers - the actual
 # native Kubernetes mechanism for this, since EKS's managed control plane
 # doesn't support trusting an arbitrary external OIDC provider directly.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: dashboard-api
-  namespace: kubernetes-dashboard
----
+# Binds to "kubernetes-dashboard-api", the ServiceAccount the Helm chart
+# itself creates for the api Deployment (release name is always fixed to
+# "kubernetes-dashboard" - see webstack-dashboard.template.yaml) - not a
+# separately-created ServiceAccount, since the pod won't use one anyway.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -47,7 +54,7 @@ roleRef:
   name: dashboard-impersonator
 subjects:
   - kind: ServiceAccount
-    name: dashboard-api
+    name: kubernetes-dashboard-api
     namespace: kubernetes-dashboard
 ---
 # What an impersonated "view"/"edit"/"admin" group is actually allowed to do,

@@ -84,11 +84,13 @@ Resources:
               ingress:
                 enabled: true
                 hosts:
-                  - ${AWS::StackName}.${ClusterZone}
+                  - ${ClusterName}.${ClusterZone}
                 ingressClassName: nginx
                 issuer:
                   name: letsencrypt-prod
                   scope: cluster
+              image:
+                pullPolicy: Always
             auth:
               image:
                 repository: spacemade/kubernetes-ui-auth
@@ -99,7 +101,7 @@ Resources:
                   - --oidc-issuer-url=${CloudOIDCUrl}
                   - --oidc-client-id=${CloudClientId}
                   - --oidc-client-secret=${CloudClientSecret}
-                  - --oidc-redirect-url=https://${AWS::StackName}.${ClusterZone}/api/v1/oidc/callback
+                  - --oidc-redirect-url=https://${ClusterName}.${ClusterZone}/api/v1/oidc/callback
                   - --oidc-scopes=${CloudScope}
                   - --session-signing-key=${SessionSigningKey}
             api:
@@ -119,11 +121,13 @@ Resources:
               ingress:
                 enabled: true
                 hosts:
-                  - ${AWS::StackName}.${ClusterZone}
+                  - ${ClusterName}.${ClusterZone}
                 ingressClassName: nginx
                 issuer:
                   name: letsencrypt-prod
                   scope: cluster
+              image:
+                pullPolicy: Always
             auth:
               image:
                 repository: spacemade/kubernetes-ui-auth
@@ -147,4 +151,4 @@ Outputs:
 
   AdminUrl:
     Description: Point your DNS to this CNAME.
-    Value: !Join ["", [!Ref "AWS::StackName", ".", !Ref ClusterZone]]
+    Value: !Join ["", [!Ref ClusterName, ".", !Ref ClusterZone]]

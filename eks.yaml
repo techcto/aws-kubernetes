@@ -356,12 +356,10 @@ Conditions:
   AddUser: !Not [ !Equals [ !Ref AdditionalEKSAdminUserArn, "" ] ]
   AddRole: !Not [ !Equals [ !Ref AdditionalEKSAdminRoleArn, "" ] ]
   EnableNetwork: !Equals [!Ref 'ProvisionNetwork', 'Enabled']
-  # Only actually install the Dashboard when SSO is configured - without a
-  # Cognito client id, the oauth2-proxy deployment behind it has nothing to
-  # authenticate against and is just a broken login screen.
-  EnableDashboard: !And
-    - !Equals [!Ref 'ProvisionDashboard', 'Enabled']
-    - !Not [!Equals [!Ref 'CloudClientId', '']]
+  # SSO is optional - the Dashboard still works with plain bearer-token login
+  # when CloudClientId isn't set (see webstack-dashboard.template.yaml, which
+  # branches its ValueYaml on whether SSO params were actually provided).
+  EnableDashboard: !Equals [!Ref 'ProvisionDashboard', 'Enabled']
   NoProxy: !Equals [!Ref HttpProxy, '']
 
 Resources:

@@ -2,7 +2,6 @@
 export AWS_PROFILE="${AWS_PROFILE:-develop}"
 
 helm package network
-helm package dashboard
 helm package lets-encrypt
 helm repo index .
 

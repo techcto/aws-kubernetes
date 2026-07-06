@@ -64,6 +64,40 @@ cft(){
     ./deploy.sh
 }
 
+# Builds and pushes the Dashboard's Docker images (auth, api, web) from the
+# techcto/kubernetes-ui submodule to Docker Hub as spacemade/kubernetes-ui-*.
+# Usage:
+#   ./cmd.sh images                  # build + push auth, api, and web at :latest
+#   ./cmd.sh images auth             # just one of them
+#   VERSION=1.2.3 ./cmd.sh images    # tag with a version instead of latest
+images(){
+    local target="${args[1]:-all}"
+    local version="${VERSION:-latest}"
+    local modules_dir="submodules/kubernetes-ui/modules"
+
+    local names
+    case "$target" in
+        all) names=(auth api web) ;;
+        auth|api|web) names=("$target") ;;
+        *) echo "Unknown image target: $target (expected auth, api, web, or all)" >&2; return 1 ;;
+    esac
+
+    for name in "${names[@]}"; do
+        local image="spacemade/kubernetes-ui-${name}:${version}"
+        echo "[images] Building ${image}"
+        docker build \
+            -f "${modules_dir}/${name}/Dockerfile" \
+            -t "${image}" \
+            --build-arg TARGETARCH=amd64 \
+            --build-arg TARGETOS=linux \
+            --build-arg VERSION="${version}" \
+            "${modules_dir}"
+
+        echo "[images] Pushing ${image}"
+        docker push "${image}"
+    done
+}
+
 test(){
     ./test.sh
 }

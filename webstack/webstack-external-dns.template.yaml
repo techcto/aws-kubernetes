@@ -41,7 +41,11 @@ Resources:
     Type: AWS::EKS::PodIdentityAssociation
     Properties:
       ClusterName: !Ref ClusterName
-      Namespace: kube-system
+      # The external-dns EKS add-on runs its pod in its own "external-dns"
+      # namespace, not kube-system - the association's namespace must match
+      # where the pod actually runs or Pod Identity Agent won't inject
+      # credentials for it, silently falling back to (nonexistent) IMDS.
+      Namespace: external-dns
       ServiceAccount: external-dns
       RoleArn: !GetAtt ExternalDNSPodIdentityRole.Arn
 

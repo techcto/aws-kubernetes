@@ -13,6 +13,7 @@ Metadata:
           - ClusterName
           - LetsEncryptRepoUrl
           - AdminEmail
+          - WebStackArn
 
 Parameters:
 
@@ -24,6 +25,9 @@ Parameters:
     Default: "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts"
 
   AdminEmail:
+    Type: String
+
+  WebStackArn:
     Type: String
 
 Resources:
@@ -48,11 +52,12 @@ Resources:
 
   LetsEncrypt:
     DependsOn: CertManager
-    Type: "AWSQS::Kubernetes::Helm"
+    Type: "Custom::Helm"
     Properties:
-      ClusterID: !Ref ClusterName
+      ServiceToken: !Ref WebStackArn
+      ClusterName: !Ref ClusterName
       Repository: !Ref LetsEncryptRepoUrl
-      Chart: solodev/lets-encrypt
+      Chart: lets-encrypt
       Version: '1.3'
       Name: lets-encrypt
       Namespace: cert-manager

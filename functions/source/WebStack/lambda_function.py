@@ -2,6 +2,8 @@ import base64
 import json
 import logging
 import math
+import os
+import subprocess
 import time
 from hashlib import md5
 
@@ -14,6 +16,8 @@ from kubernetes import dynamic as k8s_dynamic
 from kubernetes.client import Configuration
 
 from crhelper import CfnResource
+
+HELM_BIN = '/var/task/helm'
 
 logger = logging.getLogger(__name__)
 helper = CfnResource(json_logging=True, log_level="DEBUG")
@@ -29,6 +33,7 @@ try:
     iam_client = boto3.client('iam')
     eks_client = boto3.client('eks')
     sts_client = boto3.client('sts')
+    ec2_client = boto3.client('ec2')
 except Exception as init_exception:
     helper.init_failure(init_exception)
 
@@ -148,6 +153,97 @@ def enable_marketplace(api_client, cluster_name, namespace, role_name):
     )
 
 
+def tag_subnets(props):
+    """The AWS Load Balancer Controller auto-discovers subnets via these
+    tags - without them it can't provision a Service/Ingress load balancer
+    at all. Idempotent (create_tags is an upsert), so safe to run on every
+    update, not just create."""
+    cluster_tag = {'Key': f"kubernetes.io/cluster/{props['ClusterName']}", 'Value': 'shared'}
+    public_ids = [s for s in props.get('PublicSubnetIds', '').split(',') if s]
+    private_ids = [s for s in props.get('PrivateSubnetIds', '').split(',') if s]
+
+    if public_ids:
+        ec2_client.create_tags(Resources=public_ids,
+                                Tags=[cluster_tag, {'Key': 'kubernetes.io/role/elb', 'Value': '1'}])
+    if private_ids:
+        ec2_client.create_tags(Resources=private_ids,
+                                Tags=[cluster_tag, {'Key': 'kubernetes.io/role/internal-elb', 'Value': '1'}])
+
+
+def helm_kube_args(cluster_name):
+    """--kube-* flags let the helm CLI talk to the cluster with a bearer
+    token directly, the same way k8s_api_client() does for the python
+    client - no kubeconfig file or in-cluster context needed."""
+    cluster = eks_client.describe_cluster(name=cluster_name)['cluster']
+    ca_path = '/tmp/eks-ca.crt'
+    with open(ca_path, 'wb') as f:
+        f.write(base64.b64decode(cluster['certificateAuthority']['data']))
+    return [
+        '--kube-apiserver', cluster['endpoint'],
+        '--kube-token', get_bearer_token(cluster_name),
+        '--kube-ca-file', ca_path,
+    ]
+
+
+def _redact(args):
+    out = list(args)
+    for i, a in enumerate(out):
+        if a == '--kube-token' and i + 1 < len(out):
+            out[i + 1] = '***'
+    return out
+
+
+def run_helm(args):
+    # Lambda's only writable path is /tmp - helm's default cache/config/data
+    # dirs live under $HOME, which is otherwise unset (or read-only) here.
+    env = dict(os.environ, HOME='/tmp', XDG_CACHE_HOME='/tmp/.cache',
+               XDG_CONFIG_HOME='/tmp/.config', XDG_DATA_HOME='/tmp/.data')
+    logger.info("helm %s", ' '.join(_redact(args)))
+    result = subprocess.run([HELM_BIN] + args, env=env, capture_output=True, text=True, timeout=600)
+    logger.info("helm exit=%s\nstdout:\n%s\nstderr:\n%s", result.returncode, result.stdout, result.stderr)
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or 'helm failed with no output').strip()[:1500])
+    return result.stdout
+
+
+def helm_install(props):
+    cluster_name = props['ClusterName']
+    namespace = props['Namespace']
+    name = props['Name']
+    chart = props['Chart']
+
+    values_path = '/tmp/values.yaml'
+    with open(values_path, 'w') as f:
+        f.write(props.get('ValueYaml') or '')
+
+    args = ['upgrade', '--install', name, chart,
+            '--namespace', namespace, '--create-namespace',
+            '--wait', '--timeout', '480s', '--atomic']
+    if props.get('Repository'):
+        args += ['--repo', props['Repository']]
+    if props.get('Version'):
+        args += ['--version', props['Version']]
+    if os.path.getsize(values_path) > 0:
+        args += ['-f', values_path]
+    for key, value in (props.get('Values') or {}).items():
+        args += ['--set', f'{key}={value}']
+
+    run_helm(args + helm_kube_args(cluster_name))
+    return name
+
+
+def helm_uninstall(props):
+    args = ['uninstall', props['Name'], '--namespace', props['Namespace'],
+            '--wait', '--timeout', '300s']
+    try:
+        run_helm(args + helm_kube_args(props['ClusterName']))
+    except RuntimeError as e:
+        if 'release: not found' in str(e).lower():
+            logger.info("Release already gone, nothing to uninstall")
+        else:
+            raise
+
+
 def enable_solodev(api_client):
     apply_manifest_url(api_client, "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/admin-role.yaml")
     apply_manifest_url(api_client, "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/storage-class.yaml")
@@ -164,6 +260,12 @@ def enable_solodev(api_client):
 @helper.create
 @helper.update
 def create_handler(event, context):
+    if event['ResourceType'] == 'Custom::Helm':
+        return helm_install(event['ResourceProperties'])
+    if event['ResourceType'] == 'Custom::SubnetTags':
+        tag_subnets(event['ResourceProperties'])
+        return 'subnet-tags'
+
     cluster_name = event["ResourceProperties"]["ClusterName"]
 
     interval = 5
@@ -203,6 +305,13 @@ def create_handler(event, context):
         outp = "MD5-" + str(md5_digest)
     helper.Data.update(response_data)
     return outp
+
+
+@helper.delete
+def delete_handler(event, context):
+    if event['ResourceType'] == 'Custom::Helm':
+        helm_uninstall(event['ResourceProperties'])
+    return ''
 
 
 def lambda_handler(event, context):

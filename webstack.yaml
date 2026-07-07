@@ -36,12 +36,27 @@ Parameters:
     Description: This is the DNS Zone that for a single cluster
     Type: String
     Default: ""
+  ProvisionLoadBalancerController:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Enabled"
+    Description: "Choose Enabled to enable the AWS Load Balancer Controller"
+  VPCID:
+    Type: String
+    Default: ""
+  OIDCIssuerURL:
+    Type: String
+    Default: ""
+  SettleWaitFunctionArn:
+    Type: String
+    Default: ""
 
 Conditions:
   EnableNginxIngress: !Equals [!Ref 'ProvisionNginxIngress', 'Enabled']
   EnableExternalDNS: !Equals [!Ref 'ProvisionExternalDNS', 'Enabled']
   EnableDashboard: !Equals [!Ref 'ProvisionDashboard', 'Enabled']
   EnableNetwork: !Equals [!Ref 'ProvisionNetwork', 'Enabled']
+  EnableLoadBalancerController: !Equals [!Ref 'ProvisionLoadBalancerController', 'Enabled']
 
 Resources:
   
@@ -55,14 +70,29 @@ Resources:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-external-dns.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
+  # nginx-ingress's Service provisions an AWS NLB via annotations that the LB
+  # controller watches for - it must already be running first, or nginx-ingress
+  # comes up with no external address.
+  LoadBalancerControllerStack:
+    Condition: EnableLoadBalancerController
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-load-balancer-controller.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        VPCID: !Ref VPCID
+        OIDCIssuerURL: !Ref OIDCIssuerURL
+        SettleWaitFunctionArn: !Ref SettleWaitFunctionArn
+        WebStackArn: !Ref WebStackArn
   NginxIngressStack:
-    DependsOn: ExternalDNSStack
+    DependsOn: [ ExternalDNSStack, LoadBalancerControllerStack ]
     Condition: EnableNginxIngress
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-nginx-ingress.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
+        WebStackArn: !Ref WebStackArn
   LetsEncryptStack:
     Condition: EnableNginxIngress
     Type: AWS::CloudFormation::Stack
@@ -71,6 +101,7 @@ Resources:
       Parameters:
         ClusterName: !Ref ClusterName
         AdminEmail: !Ref AdminEmail
+        WebStackArn: !Ref WebStackArn
   NetworkStack:
     Condition: EnableNetwork
     DependsOn: LetsEncryptStack

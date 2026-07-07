@@ -1,0 +1,265 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Deploys the AWS Load Balancer Controller Helm chart into an existing kubernetes cluster"
+
+Metadata:
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "EKS Cluster"
+        Parameters:
+          - ClusterName
+          - VPCID
+          - OIDCIssuerURL
+          - SettleWaitFunctionArn
+          - WebStackArn
+
+Parameters:
+
+  ClusterName:
+    Type: String
+
+  VPCID:
+    Type: String
+
+  OIDCIssuerURL:
+    Type: String
+
+  SettleWaitFunctionArn:
+    Type: String
+
+  # ServiceToken for the Custom::Helm resource below - WebStackLambda vendors
+  # its own helm binary and shells out to it directly, replacing the
+  # AWSQS::Kubernetes::Helm registry extension (deprecated along with the rest
+  # of AWS Quick Start, and unreliable in some accounts with zero diagnostics).
+  WebStackArn:
+    Type: String
+
+Resources:
+
+  LoadBalancerControllerIAMRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [EIAMPolicyWildcardResource]
+          ignore_reasons:
+            EIAMPolicyWildcardResource: "resources are created dynamically by the k8s cloud controller, and aren't known at the time of policy creation"
+    Properties:
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerURLWithoutProtocol}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerURLWithoutProtocol}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+                  }
+                }
+              }
+            ]
+          }
+        - OIDCIssuerURLWithoutProtocol: !Join [ '', !Split [ 'https://', !Ref OIDCIssuerURL ] ]
+      Policies:
+      - PolicyName: load-balancer-controller-policy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'iam:CreateServiceLinkedRole'
+                - 'ec2:DescribeAccountAttributes'
+                - 'ec2:DescribeAddresses'
+                - 'ec2:DescribeAvailabilityZones'
+                - 'ec2:DescribeInternetGateways'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DescribeSubnets'
+                # subnet auto-discovery ("list subnets by reachability") added
+                # this requirement in newer controller versions - without it,
+                # the Service's LB model build fails silently in a retry loop
+                # and helm --wait just hangs until its own timeout.
+                - 'ec2:DescribeRouteTables'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeInstances'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeTags'
+                - 'ec2:GetCoipPoolUsage'
+                - 'ec2:DescribeCoipPools'
+                - 'elasticloadbalancing:DescribeLoadBalancers'
+                - 'elasticloadbalancing:DescribeLoadBalancerAttributes'
+                - 'elasticloadbalancing:DescribeListeners'
+                - 'elasticloadbalancing:DescribeListenerAttributes'
+                - 'elasticloadbalancing:DescribeListenerCertificates'
+                - 'elasticloadbalancing:DescribeSSLPolicies'
+                - 'elasticloadbalancing:DescribeRules'
+                - 'elasticloadbalancing:DescribeTargetGroups'
+                - 'elasticloadbalancing:DescribeTargetGroupAttributes'
+                - 'elasticloadbalancing:DescribeTargetHealth'
+                - 'elasticloadbalancing:DescribeTags'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:DescribeUserPoolClient'
+                - 'acm:ListCertificates'
+                - 'acm:DescribeCertificate'
+                - 'iam:ListServerCertificates'
+                - 'iam:GetServerCertificate'
+                - 'waf-regional:GetWebACL'
+                - 'waf-regional:GetWebACLForResource'
+                - 'waf-regional:AssociateWebACL'
+                - 'waf-regional:DisassociateWebACL'
+                - 'wafv2:GetWebACL'
+                - 'wafv2:GetWebACLForResource'
+                - 'wafv2:AssociateWebACL'
+                - 'wafv2:DisassociateWebACL'
+                - 'shield:GetSubscriptionState'
+                - 'shield:DescribeProtection'
+                - 'shield:CreateProtection'
+                - 'shield:DeleteProtection'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ec2:AuthorizeSecurityGroupIngress'
+                - 'ec2:RevokeSecurityGroupIngress'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateSecurityGroup'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateTags'
+              Resource: !Sub 'arn:${AWS::Partition}:ec2:*:*:security-group/*'
+              Condition:
+                StringEquals:
+                  'ec2:CreateAction': CreateSecurityGroup
+                'Null':
+                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateTags'
+                - 'ec2:DeleteTags'
+              Resource: !Sub 'arn:${AWS::Partition}:ec2:*:*:security-group/*'
+              Condition:
+                'Null':
+                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'true'
+                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'ec2:AuthorizeSecurityGroupIngress'
+                - 'ec2:RevokeSecurityGroupIngress'
+                - 'ec2:DeleteSecurityGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:CreateLoadBalancer'
+                - 'elasticloadbalancing:CreateTargetGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  'aws:RequestTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:CreateListener'
+                - 'elasticloadbalancing:DeleteListener'
+                - 'elasticloadbalancing:CreateRule'
+                - 'elasticloadbalancing:DeleteRule'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:AddTags'
+                - 'elasticloadbalancing:RemoveTags'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:targetgroup/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:loadbalancer/net/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:loadbalancer/app/*/*'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:AddTags'
+                - 'elasticloadbalancing:RemoveTags'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener/net/*/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener/app/*/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener-rule/net/*/*/*'
+                - !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:listener-rule/app/*/*/*'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:ModifyLoadBalancerAttributes'
+                - 'elasticloadbalancing:SetIpAddressType'
+                - 'elasticloadbalancing:SetSecurityGroups'
+                - 'elasticloadbalancing:SetSubnets'
+                - 'elasticloadbalancing:DeleteLoadBalancer'
+                - 'elasticloadbalancing:ModifyTargetGroup'
+                - 'elasticloadbalancing:ModifyTargetGroupAttributes'
+                - 'elasticloadbalancing:DeleteTargetGroup'
+              Resource: '*'
+              Condition:
+                'Null':
+                  'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:RegisterTargets'
+                - 'elasticloadbalancing:DeregisterTargets'
+              Resource: !Sub 'arn:${AWS::Partition}:elasticloadbalancing:*:*:targetgroup/*/*'
+            - Effect: Allow
+              Action:
+                - 'elasticloadbalancing:SetWebAcl'
+                - 'elasticloadbalancing:ModifyListener'
+                - 'elasticloadbalancing:AddListenerCertificates'
+                - 'elasticloadbalancing:RemoveListenerCertificates'
+                - 'elasticloadbalancing:ModifyRule'
+              Resource: '*'
+
+  LoadBalancerControllerHelmChart:
+    DependsOn: LoadBalancerControllerIAMRole
+    Type: "Custom::Helm"
+    Metadata: { cfn-lint: { config: { ignore_checks: [ E3012 ] } } }
+    Properties:
+      ServiceToken: !Ref WebStackArn
+      ClusterName: !Ref ClusterName
+      Namespace: kube-system
+      Name: aws-load-balancer-controller
+      Repository: https://aws.github.io/eks-charts
+      # bare chart name, not "eks/aws-load-balancer-controller" - our helm
+      # invocation passes --repo directly rather than adding a named repo alias
+      Chart: aws-load-balancer-controller
+      # Chart version tracks the eks-charts repo; verify against
+      # https://artifacthub.io/packages/helm/aws/aws-load-balancer-controller before deploying.
+      Version: 1.14.0
+      Values:
+        clusterName: !Ref ClusterName
+        region: !Sub '${AWS::Region}'
+        vpcId: !Ref VPCID
+      ValueYaml: !Sub |
+        serviceAccount:
+          annotations:
+            eks.amazonaws.com/role-arn: ${LoadBalancerControllerIAMRole.Arn}
+        nodeSelector:
+          kubernetes.io/os: linux
+
+  # "helm install" returning doesn't mean the controller pod (and its admission
+  # webhook) is actually ready - installing any other chart that creates a
+  # Service in that window fails with "no endpoints available for service
+  # aws-load-balancer-webhook-service". See:
+  # https://github.com/kubernetes-sigs/aws-load-balancer-controller/issues/4140
+  LoadBalancerControllerSettleWait:
+    DependsOn: LoadBalancerControllerHelmChart
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !Ref SettleWaitFunctionArn
+      Seconds: 60
+
+Outputs:
+  IAMRoleArn:
+    Value: !GetAtt LoadBalancerControllerIAMRole.Arn

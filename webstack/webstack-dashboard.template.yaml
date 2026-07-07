@@ -13,6 +13,7 @@ Metadata:
           - ClusterName
           - ClusterZone
           - Namespace
+          - WebStackArn
       -
         Label:
           default: "Optional: SSO Configuration (Keycloak)"
@@ -26,6 +27,9 @@ Metadata:
 Parameters:
 
   ClusterName:
+    Type: String
+
+  WebStackArn:
     Type: String
 
   Namespace:
@@ -69,12 +73,13 @@ Conditions:
 Resources:
 
   Dashboard:
-    Type: "AWSQS::Kubernetes::Helm"
+    Type: "Custom::Helm"
     Properties:
-      ClusterID: !Ref ClusterName
+      ServiceToken: !Ref WebStackArn
+      ClusterName: !Ref ClusterName
       Namespace: !Ref Namespace
       Repository: "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts"
-      Chart: techcto/kubernetes-dashboard
+      Chart: kubernetes-dashboard
       Name: kubernetes-dashboard
       Version: 7.14.0
       ValueYaml: !If

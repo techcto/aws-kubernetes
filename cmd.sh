@@ -37,22 +37,30 @@ helm(){
 }
 
 # Installs functions/source/WebStack's Python deps (kubernetes client, pyyaml,
-# crhelper - boto3 isn't bundled since the Lambda runtime already provides it)
-# and zips the whole thing into functions/packages/WebStack/lambda.zip, all
-# inside a container matching the Lambda runtime. Runs in Docker even on
-# Linux/macOS: zipping on the host can silently drop the executable bit on
-# some filesystems (NTFS has no such concept at all), which produces a zip
-# that fails at runtime with no error until Lambda actually tries to use it.
-# Builds in an isolated /tmp dir inside the container (never bind-mounted) so
-# pip's vendored dependencies never land in the git-tracked source directory.
+# crhelper - boto3 isn't bundled since the Lambda runtime already provides it),
+# vendors a static helm binary (replaces the AWSQS::Kubernetes::Helm registry
+# extension - see functions/source/WebStack/README.md), and zips the whole
+# thing into functions/packages/WebStack/lambda.zip, all inside a container
+# matching the Lambda runtime. Runs in Docker even on Linux/macOS: zipping on
+# the host can silently drop the executable bit on some filesystems (NTFS has
+# no such concept at all), which produces a zip that fails at runtime with no
+# error until Lambda actually tries to exec helm. Builds in an isolated /tmp
+# dir inside the container (never bind-mounted) so pip's vendored dependencies
+# never land in the git-tracked source directory.
 lambda(){
-    MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD:/repo" -w /repo --entrypoint bash public.ecr.aws/lambda/python:3.13 -c '
+    HELM_VERSION="${HELM_VERSION:-v3.16.3}"
+    MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD:/repo" -w /repo -e HELM_VERSION="$HELM_VERSION" --entrypoint bash public.ecr.aws/lambda/python:3.13 -c '
         set -euo pipefail
-        microdnf install -y zip >/dev/null
+        microdnf install -y zip tar gzip >/dev/null
+        command -v curl >/dev/null || microdnf install -y curl >/dev/null
 
         rm -rf /tmp/build && mkdir -p /tmp/build
         cp functions/source/WebStack/lambda_function.py /tmp/build/
         pip install --quiet --target /tmp/build kubernetes pyyaml crhelper --no-cache-dir --upgrade
+
+        curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm
+        mv /tmp/linux-amd64/helm /tmp/build/helm
+        chmod +x /tmp/build/helm
 
         rm -f /repo/functions/packages/WebStack/lambda.zip
         cd /tmp/build

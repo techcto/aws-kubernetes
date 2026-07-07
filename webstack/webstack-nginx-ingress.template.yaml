@@ -11,21 +11,26 @@ Metadata:
           default: "Lambda Function"
         Parameters:
           - ClusterName
+          - WebStackArn
 
 Parameters:
 
   ClusterName:
     Type: String
 
+  WebStackArn:
+    Type: String
+
 Resources:
 
   NginxIngress:
-    Type: "AWSQS::Kubernetes::Helm"
+    Type: "Custom::Helm"
     Properties:
-      ClusterID: !Ref ClusterName
+      ServiceToken: !Ref WebStackArn
+      ClusterName: !Ref ClusterName
       Namespace: ingress-nginx
       Repository: https://kubernetes.github.io/ingress-nginx
-      Chart: ingress-nginx/ingress-nginx
+      Chart: ingress-nginx
       # Verify against https://artifacthub.io/packages/helm/ingress-nginx/ingress-nginx
       # before bumping - unlike the Bitnami charts, images here come from
       # registry.k8s.io, which hasn't had a similar hosting disruption, but an
@@ -35,6 +40,12 @@ Resources:
       ValueYaml: !Sub |
         controller:
           name: controller
+          # controller-role.yaml compares this against the literal string
+          # "false" with Sprig's `ne` - when the key is absent entirely,
+          # `index` returns nil and that comparison fails with "incompatible
+          # types for comparison" instead of just being falsy.
+          extraArgs:
+            update-status: "false"
           service:
             annotations:
               service.beta.kubernetes.io/aws-load-balancer-type: external

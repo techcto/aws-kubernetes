@@ -233,8 +233,11 @@ def helm_install(props):
 
 
 def helm_uninstall(props):
+    # Deleting a Service of type LoadBalancer can outlast a short timeout -
+    # the LB controller has to notice the deletion and tear down the actual
+    # AWS NLB before helm's wait considers the release fully uninstalled.
     args = ['uninstall', props['Name'], '--namespace', props['Namespace'],
-            '--wait', '--timeout', '300s']
+            '--wait', '--timeout', '480s']
     try:
         run_helm(args + helm_kube_args(props['ClusterName']))
     except RuntimeError as e:

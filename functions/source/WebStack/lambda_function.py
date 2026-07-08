@@ -247,11 +247,11 @@ def helm_install(props):
         ecr_registry_login(repository[len('oci://'):].split('/', 1)[0])
         args = ['upgrade', '--install', name, repository,
                 '--namespace', namespace, '--create-namespace',
-                '--wait', '--timeout', '480s', '--atomic']
+                '--wait', '--timeout', '750s', '--atomic']
     else:
         args = ['upgrade', '--install', name, chart,
                 '--namespace', namespace, '--create-namespace',
-                '--wait', '--timeout', '480s', '--atomic']
+                '--wait', '--timeout', '750s', '--atomic']
         if repository:
             args += ['--repo', repository]
 

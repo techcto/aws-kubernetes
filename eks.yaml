@@ -444,11 +444,17 @@ Resources:
                   - lambda:InvokeFunction
                   - s3:GetObject
                   # Needed to helm-install charts hosted as OCI artifacts in
-                  # ECR (e.g. Solodev CMS's AWS/Marketplace chart variant) -
-                  # cross-account pulls also need the source ECR repo's own
-                  # policy to allow this account, which is a separate,
-                  # one-time setup step outside this template.
+                  # ECR (e.g. Solodev CMS's AWS Marketplace chart variant).
+                  # GetAuthorizationToken alone isn't enough to actually pull -
+                  # this identity also needs the real image/manifest actions,
+                  # confirmed by testing as this exact role: a 403 with "no
+                  # identity-based policy allows the ecr:BatchGetImage action"
+                  # meant this role's OWN policy was the gap, not the source
+                  # ECR repo's cross-account resource policy (which was fine).
                   - ecr:GetAuthorizationToken
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchCheckLayerAvailability
                   # Needed by enable_marketplace() in WebStackLambda's own code -
                   # creates the per-namespace IRSA role/policy backing each
                   # Custom::Helm-installed app's Kubernetes ServiceAccount

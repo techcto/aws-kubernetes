@@ -449,6 +449,14 @@ Resources:
                   # policy to allow this account, which is a separate,
                   # one-time setup step outside this template.
                   - ecr:GetAuthorizationToken
+                  # Needed by enable_marketplace() in WebStackLambda's own code -
+                  # creates the per-namespace IRSA role/policy backing each
+                  # Custom::Helm-installed app's Kubernetes ServiceAccount
+                  # (e.g. Solodev CMS for EKS's ServiceAccount resource).
+                  - iam:CreateRole
+                  - iam:GetRole
+                  - iam:CreatePolicy
+                  - iam:AttachRolePolicy
                 Resource: "*"
               - Effect: Allow
                 Action:

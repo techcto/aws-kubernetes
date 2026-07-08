@@ -1071,6 +1071,12 @@ Outputs:
     Value: !Ref ControlPlane
   WebStackArn:
     Value: !GetAtt WebStackLambda.Arn
-  AccessToken: 
+  AccessToken:
     Condition: EnableDashboard
     Value: !GetAtt WebStack.Outputs.AccessToken
+  # Bubbles up the Dashboard's own ingress hostname so Cloud recognizes this
+  # cluster has an SSO-loginable URL (same AdminUrl output shape the CMS/
+  # Keycloak templates use) - only meaningful if Dashboard was installed.
+  AdminUrl:
+    Condition: EnableDashboard
+    Value: !GetAtt DashboardStack.Outputs.AdminUrl

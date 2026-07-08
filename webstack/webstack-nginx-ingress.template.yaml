@@ -43,9 +43,12 @@ Resources:
           # controller-role.yaml compares this against the literal string
           # "false" with Sprig's `ne` - when the key is absent entirely,
           # `index` returns nil and that comparison fails with "incompatible
-          # types for comparison" instead of just being falsy.
+          # types for comparison" instead of just being falsy. Just needs to
+          # be present, NOT false - "false" actually disables writing the
+          # LoadBalancer address back onto Ingress objects' status, which is
+          # exactly what external-dns needs to create DNS records for them.
           extraArgs:
-            update-status: "false"
+            update-status: "true"
           service:
             annotations:
               service.beta.kubernetes.io/aws-load-balancer-type: external

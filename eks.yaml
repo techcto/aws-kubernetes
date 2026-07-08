@@ -443,6 +443,12 @@ Resources:
                   - ec2:CreateTags
                   - lambda:InvokeFunction
                   - s3:GetObject
+                  # Needed to helm-install charts hosted as OCI artifacts in
+                  # ECR (e.g. Solodev CMS's AWS/Marketplace chart variant) -
+                  # cross-account pulls also need the source ECR repo's own
+                  # policy to allow this account, which is a separate,
+                  # one-time setup step outside this template.
+                  - ecr:GetAuthorizationToken
                 Resource: "*"
               - Effect: Allow
                 Action:

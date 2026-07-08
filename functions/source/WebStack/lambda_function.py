@@ -206,21 +206,54 @@ def run_helm(args):
     return result.stdout
 
 
+def ecr_registry_login(registry_host):
+    """OCI charts hosted in ECR need a docker-style registry login before
+    helm can pull them - unlike classic HTTP chart repos, there's no
+    unauthenticated index to fetch. Cross-account pulls also require the
+    target ECR repository's own policy to allow this account, which is a
+    one-time setup step outside of what this function can do."""
+    region = registry_host.split('.')[3]
+    ecr_client = boto3.client('ecr', region_name=region)
+    auth = ecr_client.get_authorization_token()
+    token = base64.b64decode(auth['authorizationData'][0]['authorizationToken']).decode('utf-8')
+    _, password = token.split(':', 1)
+
+    env = dict(os.environ, HOME='/tmp')
+    result = subprocess.run(
+        [HELM_BIN, 'registry', 'login', registry_host, '--username', 'AWS', '--password-stdin'],
+        input=password, env=env, capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or 'helm registry login failed').strip()[:1500])
+
+
 def helm_install(props):
     cluster_name = props['ClusterName']
     namespace = props['Namespace']
     name = props['Name']
     chart = props['Chart']
+    repository = props.get('Repository')
+    is_oci = bool(repository) and repository.startswith('oci://')
 
     values_path = '/tmp/values.yaml'
     with open(values_path, 'w') as f:
         f.write(props.get('ValueYaml') or '')
 
-    args = ['upgrade', '--install', name, chart,
-            '--namespace', namespace, '--create-namespace',
-            '--wait', '--timeout', '480s', '--atomic']
-    if props.get('Repository'):
-        args += ['--repo', props['Repository']]
+    if is_oci:
+        # OCI chart references are self-contained (registry + repo path) -
+        # there's no separate --repo flag or bare chart name like classic
+        # HTTP repos use; the full oci:// URL IS the chart argument.
+        ecr_registry_login(repository[len('oci://'):].split('/', 1)[0])
+        args = ['upgrade', '--install', name, repository,
+                '--namespace', namespace, '--create-namespace',
+                '--wait', '--timeout', '480s', '--atomic']
+    else:
+        args = ['upgrade', '--install', name, chart,
+                '--namespace', namespace, '--create-namespace',
+                '--wait', '--timeout', '480s', '--atomic']
+        if repository:
+            args += ['--repo', repository]
+
     if props.get('Version'):
         args += ['--version', props['Version']]
     if os.path.getsize(values_path) > 0:

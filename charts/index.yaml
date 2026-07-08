@@ -1,8 +1,22 @@
 apiVersion: v1
 entries:
+  cms:
+  - apiVersion: v1
+    created: "2026-07-07T20:52:00.0138671-04:00"
+    description: Solodev CMS is a content management and customer experience platform
+      that lets your team work together on digital transformation. Build amazing websites
+      and apps, collaborate, review code, and publish ideas.
+    digest: 8c307891e919a6c2abf634ab701c738fb5b191362cdda4278e6f7c870cf03c3d
+    icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+    keywords:
+    - Solodev, CM, AWS, Docker, Kubernetes
+    name: cms
+    urls:
+    - cms-24.0704.46.tgz
+    version: 24.0704.46
   kubernetes-dashboard:
   - apiVersion: v2
-    created: "2026-07-06T08:27:34.9161258-04:00"
+    created: "2026-07-07T20:52:00.0326907-04:00"
     dependencies:
     - alias: nginx
       condition: nginx.enabled
@@ -42,7 +56,7 @@ entries:
     version: 7.14.0
   lets-encrypt:
   - apiVersion: v1
-    created: "2026-07-06T08:27:34.9161258-04:00"
+    created: "2026-07-07T20:52:00.0334991-04:00"
     description: A nonprofit Certificate Authority providing TLS certificates to 200
       million websites
     digest: 87b7c7015d6ba482ab3679fda7daf162f9d3bfa7fc27905efeadc1a4a2c816d6
@@ -55,9 +69,9 @@ entries:
     version: "1.3"
   network:
   - apiVersion: v1
-    created: "2026-07-06T08:27:34.9161258-04:00"
+    created: "2026-07-07T20:52:00.0340218-04:00"
     description: Network for Solodev Managed Kubernetes
-    digest: 4fde559248d13aea465a04f5a18be51974df3acb879e67bfd2e77c19dc8f75ec
+    digest: 98d2b43d3523b820ed67f7b7b194307e512299c907037402554306fdf8d04788
     icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
     keywords:
     - Solodev, Network, Cloud
@@ -66,7 +80,7 @@ entries:
     - network-1.2.tgz
     version: "1.2"
   - apiVersion: v1
-    created: "2026-07-06T08:27:34.9161258-04:00"
+    created: "2026-07-07T20:52:00.0334991-04:00"
     description: Network for Solodev Managed Kubernetes
     digest: 9da6f7224c6d5b3b2274779120d07df0886ad483844a9e23bb90c88b2c2f9e37
     icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
@@ -77,7 +91,7 @@ entries:
     - network-1.1.tgz
     version: "1.1"
   - apiVersion: v1
-    created: "2026-07-06T08:27:34.9161258-04:00"
+    created: "2026-07-07T20:52:00.0340218-04:00"
     description: Network for Solodev Managed Kubernetes
     digest: 5e241b8f85c0fca1897553b33679e47de49f85d0417d029ff7cc53c87cdc9331
     icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
@@ -87,4 +101,18 @@ entries:
     urls:
     - network-1.tgz
     version: "1"
-generated: "2026-07-06T08:27:34.8759356-04:00"
+  solodev-cms-aws:
+  - apiVersion: v1
+    created: "2026-07-07T20:52:00.0350338-04:00"
+    description: Solodev CMS for AWS is a content management and customer experience
+      platform that lets your team work together on digital transformation. Build
+      amazing websites and apps, collaborate, review code, and publish ideas.
+    digest: 92b1728e42875852b8b80bf0665e30579262ff28ac547237db996ee46976030e
+    icon: https://www.solodev.com/_/images/solodev-logo-red.jpg
+    keywords:
+    - Solodev, CM, AWS, Docker, Kubernetes
+    name: solodev-cms-aws
+    urls:
+    - solodev-cms-aws-24.0704.46.tgz
+    version: 24.0704.46
+generated: "2026-07-07T20:52:00.0091731-04:00"

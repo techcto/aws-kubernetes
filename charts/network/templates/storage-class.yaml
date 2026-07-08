@@ -2,6 +2,13 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: ebscsi
+  annotations:
+    # Charts that create a PVC without an explicit storageClassName (e.g.
+    # Solodev CMS's "client" volume) rely on the cluster having a default -
+    # without this, those PVCs sit in Pending forever with "no persistent
+    # volumes available for this claim and no storage class is set", which
+    # looks identical to a slow/stuck install until you check `describe pvc`.
+    storageclass.kubernetes.io/is-default-class: "true"
 provisioner: ebs.csi.aws.com
 volumeBindingMode: WaitForFirstConsumer
 parameters:

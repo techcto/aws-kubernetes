@@ -127,15 +127,16 @@ def enable_marketplace(api_client, cluster_name, namespace, role_name):
     except iam_client.exceptions.EntityAlreadyExistsException:
         logger.info("Role already exists")
 
-    aws_usage_policy = {
-        "Version": "2012-10-17",
-        "Statement": [{"Action": ["aws-marketplace:RegisterUsage"], "Resource": "*", "Effect": "Allow"}],
-    }
-    try:
-        policy = iam_client.create_policy(PolicyName=f'AWSUsagePolicy-{namespace}', PolicyDocument=json.dumps(aws_usage_policy))
-        iam_client.attach_role_policy(RoleName=role_full_name, PolicyArn=policy['Policy']['Arn'])
-    except iam_client.exceptions.EntityAlreadyExistsException:
-        logger.info("Policy already exists")
+    # Matches the AWS Marketplace listing's own manual `eksctl
+    # create iamserviceaccount` instructions exactly - the running
+    # CMS pod needs all three to register usage, meter it on an
+    # ongoing basis, and check out its license at startup.
+    for policy_arn in (
+        "arn:aws:iam::aws:policy/AWSMarketplaceMeteringFullAccess",
+        "arn:aws:iam::aws:policy/AWSMarketplaceMeteringRegisterUsage",
+        "arn:aws:iam::aws:policy/service-role/AWSLicenseManagerConsumptionPolicy",
+    ):
+        iam_client.attach_role_policy(RoleName=role_full_name, PolicyArn=policy_arn)
 
     try:
         core_v1.create_namespaced_service_account(

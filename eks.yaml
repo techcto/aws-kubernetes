@@ -908,6 +908,30 @@ Resources:
       ClusterName: !Ref ControlPlane
       ResolveConflicts: OVERWRITE
 
+  # Adopts the cluster's default self-managed CoreDNS into an EKS-managed
+  # addon just to override its negative-cache TTL. Without this, a fresh
+  # Container/Deployment install races cert-manager's very first HTTP-01
+  # self-check against external-dns's Route53 record creation - if CoreDNS
+  # queries the new hostname microseconds too early, it caches the resulting
+  # NXDOMAIN and keeps serving it for Route53's ~900s negative TTL, long
+  # after the record actually exists and resolves fine everywhere else. That
+  # leaves cert-manager stuck retrying for up to 15 minutes with the ingress
+  # serving nginx's default fake cert in the meantime. Capping the denial TTL
+  # at 5s (vs the default cache plugin's unbounded/upstream-following
+  # negative TTL) means the very next retry a few seconds later just works.
+  CoreDnsAddon:
+    Condition: CreateNodeGroup
+    DependsOn: NodeGroupSettleWait
+    Type: AWS::EKS::Addon
+    Properties:
+      AddonName: coredns
+      ClusterName: !Ref ControlPlane
+      ResolveConflicts: OVERWRITE
+      ConfigurationValues: |
+        {
+          "corefile": ".:53 {\n    errors\n    health {\n      lameduck 5s\n    }\n    ready\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n      pods insecure\n      fallthrough in-addr.arpa ip6.arpa\n    }\n    prometheus :9153\n    forward . /etc/resolv.conf\n    cache 30 {\n      denial 9984 5\n    }\n    loop\n    reload\n    loadbalance\n}\n"
+        }
+
   # The chart-applied StorageClasses (charts/network/templates/storage-class.yaml)
   # that use provisioner "ebs.csi.aws.com" need this addon to actually work -
   # the older in-tree "kubernetes.io/aws-ebs" provisioner was removed from

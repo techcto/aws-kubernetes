@@ -1,0 +1,44 @@
+name: Kubernetes UI CI
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Validate CloudFormation
+        run: |
+          pip install cfn-lint
+          cfn-lint eks.yaml webstack.yaml webstack/*.template.yaml
+
+      - name: Validate Marketplace scripts
+        run: bash -n marketplace/render-release.sh marketplace/changeset.sh
+
+      - name: Test Marketplace entitlement gate
+        run: docker run --rm -v "$PWD/submodules/kubernetes-ui:/src" -w /src/modules/auth golang:1.25 go test ./pkg/marketplace
+
+      - name: Build SpaceMade Kubernetes UI images
+        run: |
+          set -euo pipefail
+          version="ci-${GITHUB_SHA::12}"
+          modules="submodules/kubernetes-ui/modules"
+          for component in auth api metrics-scraper; do
+            docker build --file "$modules/$component/Dockerfile" \
+              --build-arg TARGETARCH=amd64 --build-arg TARGETOS=linux \
+              --build-arg VERSION="$version" \
+              --tag "spacemade/kubernetes-ui-$component:$version" "$modules"
+          done
+          docker build --file "$modules/web/Dockerfile" \
+            --build-arg TARGETARCH=amd64 --build-arg TARGETOS=linux \
+            --build-arg VERSION="$version" \
+            --tag "spacemade/kubernetes-ui-web:$version" submodules/kubernetes-ui

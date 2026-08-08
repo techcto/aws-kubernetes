@@ -1,0 +1,153 @@
+name: Release Kubernetes UI to AWS Marketplace
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Release version without the leading v
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  MP_AWS_ECR: ${{ vars.MP_AWS_ECR }}
+  MP_AUTH_REPOSITORY: ${{ vars.MP_AUTH_REPOSITORY || 'solodev/kubernetes-ui-auth' }}
+  MP_API_REPOSITORY: ${{ vars.MP_API_REPOSITORY || 'solodev/kubernetes-ui-api' }}
+  MP_WEB_REPOSITORY: ${{ vars.MP_WEB_REPOSITORY || 'solodev/kubernetes-ui-web' }}
+  MP_METRICS_REPOSITORY: ${{ vars.MP_METRICS_REPOSITORY || 'solodev/kubernetes-ui-metrics-scraper' }}
+  MP_KONG_REPOSITORY: ${{ vars.MP_KONG_REPOSITORY || 'solodev/kubernetes-ui-kong' }}
+  MP_CHART_REPOSITORY: ${{ vars.MP_CHART_REPOSITORY || 'solodev/kubernetes-dashboard' }}
+  KUBERNETES_RELEASE_BUCKET: ${{ vars.KUBERNETES_RELEASE_BUCKET || 'solodev-kubernetes' }}
+  MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - id: version
+        name: Resolve version
+        env:
+          INPUT_VERSION: ${{ inputs.release_version }}
+        run: |
+          version="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
+          case "$version" in ''|*[!0-9A-Za-z.-]*) exit 1;; esac
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release configuration
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          MP_PRODUCT_ID: ${{ vars.MP_PRODUCT_ID }}
+        run: |
+          for name in AWS_ROLE_ARN MP_PRODUCT_ID MP_PRODUCT_CODE MP_AWS_ECR; do
+            test -n "${!name:-}" || { echo "Missing GitHub repository variable $name" >&2; exit 1; }
+          done
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Marketplace ECR
+        run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$MP_AWS_ECR"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and publish auth
+        uses: docker/build-push-action@v6
+        with:
+          context: submodules/kubernetes-ui/modules
+          file: submodules/kubernetes-ui/modules/auth/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            TARGETARCH=amd64
+            TARGETOS=linux
+            VERSION=${{ steps.version.outputs.value }}
+          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_AUTH_REPOSITORY }}:${{ steps.version.outputs.value }}
+
+      - name: Build and publish API
+        uses: docker/build-push-action@v6
+        with:
+          context: submodules/kubernetes-ui/modules
+          file: submodules/kubernetes-ui/modules/api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            TARGETARCH=amd64
+            TARGETOS=linux
+            VERSION=${{ steps.version.outputs.value }}
+          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_API_REPOSITORY }}:${{ steps.version.outputs.value }}
+
+      - name: Build and publish web
+        uses: docker/build-push-action@v6
+        with:
+          context: submodules/kubernetes-ui
+          file: submodules/kubernetes-ui/modules/web/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            TARGETARCH=amd64
+            TARGETOS=linux
+            VERSION=${{ steps.version.outputs.value }}
+          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_WEB_REPOSITORY }}:${{ steps.version.outputs.value }}
+
+      - name: Build and publish metrics scraper
+        uses: docker/build-push-action@v6
+        with:
+          context: submodules/kubernetes-ui/modules
+          file: submodules/kubernetes-ui/modules/metrics-scraper/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            TARGETARCH=amd64
+            TARGETOS=linux
+            VERSION=${{ steps.version.outputs.value }}
+          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_METRICS_REPOSITORY }}:${{ steps.version.outputs.value }}
+
+      - name: Mirror required Kong runtime image
+        run: |
+          docker pull --platform linux/amd64 kong:3.9
+          docker tag kong:3.9 "$MP_AWS_ECR/$MP_KONG_REPOSITORY:3.9"
+          docker push "$MP_AWS_ECR/$MP_KONG_REPOSITORY:3.9"
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Render and publish Marketplace artifacts
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          marketplace/render-release.sh release-artifacts
+          aws ecr get-login-password --region "$AWS_REGION" | helm registry login --username AWS --password-stdin "$MP_AWS_ECR"
+          chart_parent="${MP_CHART_REPOSITORY%/*}"
+          helm push "release-artifacts/kubernetes-dashboard-$RELEASE_VERSION.tgz" "oci://$MP_AWS_ECR/$chart_parent"
+          aws s3 sync release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation" \
+            --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
+          aws s3 sync release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation/$RELEASE_VERSION" \
+            --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
+
+      - name: Submit Marketplace version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          MP_PRODUCT_ID: ${{ vars.MP_PRODUCT_ID }}
+          MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
+          USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
+        run: marketplace/changeset.sh

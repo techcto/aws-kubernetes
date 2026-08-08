@@ -23,6 +23,8 @@ Metadata:
           - CloudClientSecret
           - CloudScope
           - SessionSigningKey
+          - OIDCIssuerURL
+          - MarketplaceProductCode
 
 Parameters:
 
@@ -66,11 +68,47 @@ Parameters:
     Default: ""
     NoEcho: true
 
+  OIDCIssuerURL:
+    Type: String
+    Description: "EKS cluster OIDC issuer used by the auth service's Marketplace metering IRSA role"
+
+  MarketplaceProductCode:
+    Type: String
+    Description: "AWS Marketplace product code. Empty disables metering for local/non-Marketplace builds."
+    Default: ""
+
 Conditions:
 
   HasSso: !Not [!Equals [!Ref CloudClientId, ""]]
 
 Resources:
+
+  MarketplaceMeteringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [{
+              "Effect": "Allow",
+              "Principal": {"Federated": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerURLWithoutProtocol}"},
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {"StringEquals": {
+                "${OIDCIssuerURLWithoutProtocol}:aud": "sts.amazonaws.com",
+                "${OIDCIssuerURLWithoutProtocol}:sub": "system:serviceaccount:${Namespace}:kubernetes-dashboard-auth"
+              }}
+            }]
+          }
+        - OIDCIssuerURLWithoutProtocol: !Join ['', !Split ['https://', !Ref OIDCIssuerURL]]
+      Policies:
+        - PolicyName: marketplace-register-usage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: aws-marketplace:RegisterUsage
+                Resource: "*"
 
   Dashboard:
     Type: "Custom::Helm"
@@ -97,6 +135,9 @@ Resources:
               image:
                 pullPolicy: Always
             auth:
+              serviceAccount:
+                annotations:
+                  eks.amazonaws.com/role-arn: ${MarketplaceMeteringRole.Arn}
               image:
                 repository: spacemade/kubernetes-ui-auth
                 tag: latest
@@ -109,6 +150,7 @@ Resources:
                   - --oidc-redirect-url=https://${ClusterName}.${ClusterZone}/api/v1/oidc/callback
                   - --oidc-scopes=${CloudScope}
                   - --session-signing-key=${SessionSigningKey}
+                  - --marketplace-product-code=${MarketplaceProductCode}
             api:
               image:
                 repository: spacemade/kubernetes-ui-api
@@ -134,12 +176,16 @@ Resources:
               image:
                 pullPolicy: Always
             auth:
+              serviceAccount:
+                annotations:
+                  eks.amazonaws.com/role-arn: ${MarketplaceMeteringRole.Arn}
               image:
                 repository: spacemade/kubernetes-ui-auth
                 tag: latest
               containers:
                 args:
                   - --v=1
+                  - --marketplace-product-code=${MarketplaceProductCode}
             api:
               image:
                 repository: spacemade/kubernetes-ui-api

@@ -22,7 +22,7 @@ jobs:
           cfn-lint eks.yaml webstack.yaml webstack/*.template.yaml
 
       - name: Validate Marketplace scripts
-        run: bash -n marketplace/render-release.sh marketplace/changeset.sh
+        run: bash -n marketplace/render-release.sh marketplace/changeset.sh marketplace/changeset-addon.sh
 
       - name: Test Marketplace entitlement gate
         run: docker run --rm -v "$PWD/submodules/kubernetes-ui:/src" -w /src/modules/auth golang:1.25 go test ./pkg/marketplace

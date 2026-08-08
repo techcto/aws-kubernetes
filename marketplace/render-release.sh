@@ -7,7 +7,6 @@ set -euo pipefail
 : "${MP_API_REPOSITORY:?Set MP_API_REPOSITORY}"
 : "${MP_WEB_REPOSITORY:?Set MP_WEB_REPOSITORY}"
 : "${MP_METRICS_REPOSITORY:?Set MP_METRICS_REPOSITORY}"
-: "${MP_KONG_REPOSITORY:?Set MP_KONG_REPOSITORY}"
 : "${MP_CHART_REPOSITORY:?Set MP_CHART_REPOSITORY}"
 : "${MP_PRODUCT_CODE:?Set MP_PRODUCT_CODE}"
 
@@ -19,10 +18,18 @@ rm -rf "$output"
 mkdir -p "$output/cloudformation/webstack" "$output/chart"
 cp -R submodules/kubernetes-ui/charts/kubernetes-dashboard/. "$output/chart/"
 
+# Marketplace releases use the self-contained SpaceMade dashboard only. The
+# source chart keeps optional community dependencies for non-Marketplace users,
+# but disabled third-party charts/images must not enter the reviewed artifact.
+rm -rf "$output/chart/charts"
+mkdir -p "$output/chart/charts"
+sed -i '/^dependencies:/,$d' "$output/chart/Chart.yaml"
+
 sed -i \
   -e "0,/^version: /s//version: $RELEASE_VERSION/" \
   -e "/^auth:/,/^api:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_AUTH_REPOSITORY|" \
   -e "/^auth:/,/^api:/ s|tag: .*|tag: $RELEASE_VERSION|" \
+  -e "/^auth:/,/^api:/ s|^    args: \[\]|    args:\n      - --marketplace-product-code=$MP_PRODUCT_CODE|" \
   -e "/^api:/,/^web:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_API_REPOSITORY|" \
   -e "/^api:/,/^web:/ s|tag: .*|tag: $RELEASE_VERSION|" \
   -e "/^web:/,/^metricsScraper:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_WEB_REPOSITORY|" \
@@ -30,14 +37,6 @@ sed -i \
   -e "/^metricsScraper:/,/^metrics-server:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_METRICS_REPOSITORY|" \
   -e "/^metricsScraper:/,/^metrics-server:/ s|tag: .*|tag: $RELEASE_VERSION|" \
   "$output/chart/values.yaml"
-
-# Kong is the only enabled dependency image in the default chart. Disabled
-# cert-manager/nginx/metrics-server dependencies remain disabled.
-tar -xzf "$output/chart/charts/kong-2.52.0.tgz" -C "$output/chart/charts"
-rm "$output/chart/charts/kong-2.52.0.tgz"
-sed -i \
-  -e "0,/repository: kong/s|repository: kong|repository: $MP_AWS_ECR/$MP_KONG_REPOSITORY|" \
-  "$output/chart/charts/kong/values.yaml"
 
 helm package "$output/chart" --destination "$output" --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION"
 

@@ -15,12 +15,11 @@ permissions:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  MP_AWS_ECR: ${{ vars.MP_AWS_ECR }}
+  MP_AWS_ECR: ${{ vars.MP_AWS_ECR || '709825985650.dkr.ecr.us-east-1.amazonaws.com' }}
   MP_AUTH_REPOSITORY: ${{ vars.MP_AUTH_REPOSITORY || 'solodev/kubernetes-ui-auth' }}
   MP_API_REPOSITORY: ${{ vars.MP_API_REPOSITORY || 'solodev/kubernetes-ui-api' }}
   MP_WEB_REPOSITORY: ${{ vars.MP_WEB_REPOSITORY || 'solodev/kubernetes-ui-web' }}
   MP_METRICS_REPOSITORY: ${{ vars.MP_METRICS_REPOSITORY || 'solodev/kubernetes-ui-metrics-scraper' }}
-  MP_KONG_REPOSITORY: ${{ vars.MP_KONG_REPOSITORY || 'solodev/kubernetes-ui-kong' }}
   MP_CHART_REPOSITORY: ${{ vars.MP_CHART_REPOSITORY || 'solodev/kubernetes-dashboard' }}
   KUBERNETES_RELEASE_BUCKET: ${{ vars.KUBERNETES_RELEASE_BUCKET || 'solodev-kubernetes' }}
   MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
@@ -39,7 +38,10 @@ jobs:
           INPUT_VERSION: ${{ inputs.release_version }}
         run: |
           version="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
-          case "$version" in ''|*[!0-9A-Za-z.-]*) exit 1;; esac
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Marketplace versions must use semantic versioning, for example 1.2.3" >&2
+            exit 1
+          }
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Validate release configuration
@@ -66,13 +68,11 @@ jobs:
         with:
           context: submodules/kubernetes-ui/modules
           file: submodules/kubernetes-ui/modules/auth/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
           sbom: false
           build-args: |
-            TARGETARCH=amd64
-            TARGETOS=linux
             VERSION=${{ steps.version.outputs.value }}
           tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_AUTH_REPOSITORY }}:${{ steps.version.outputs.value }}
 
@@ -81,13 +81,11 @@ jobs:
         with:
           context: submodules/kubernetes-ui/modules
           file: submodules/kubernetes-ui/modules/api/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
           sbom: false
           build-args: |
-            TARGETARCH=amd64
-            TARGETOS=linux
             VERSION=${{ steps.version.outputs.value }}
           tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_API_REPOSITORY }}:${{ steps.version.outputs.value }}
 
@@ -96,13 +94,11 @@ jobs:
         with:
           context: submodules/kubernetes-ui
           file: submodules/kubernetes-ui/modules/web/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
           sbom: false
           build-args: |
-            TARGETARCH=amd64
-            TARGETOS=linux
             VERSION=${{ steps.version.outputs.value }}
           tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_WEB_REPOSITORY }}:${{ steps.version.outputs.value }}
 
@@ -111,21 +107,13 @@ jobs:
         with:
           context: submodules/kubernetes-ui/modules
           file: submodules/kubernetes-ui/modules/metrics-scraper/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
           sbom: false
           build-args: |
-            TARGETARCH=amd64
-            TARGETOS=linux
             VERSION=${{ steps.version.outputs.value }}
           tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_METRICS_REPOSITORY }}:${{ steps.version.outputs.value }}
-
-      - name: Mirror required Kong runtime image
-        run: |
-          docker pull --platform linux/amd64 kong:3.9
-          docker tag kong:3.9 "$MP_AWS_ECR/$MP_KONG_REPOSITORY:3.9"
-          docker push "$MP_AWS_ECR/$MP_KONG_REPOSITORY:3.9"
 
       - uses: azure/setup-helm@v4
         with:
@@ -151,3 +139,11 @@ jobs:
           MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
           USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
         run: marketplace/changeset.sh
+
+      - name: Submit limited EKS add-on
+        if: vars.MP_ENABLE_EKS_ADDON == 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          MP_PRODUCT_ID: ${{ vars.MP_PRODUCT_ID }}
+          USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
+        run: marketplace/changeset-addon.sh

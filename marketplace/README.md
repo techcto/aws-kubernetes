@@ -5,8 +5,8 @@ Helm chart, versioned CloudFormation templates, and a paid AWS Marketplace
 container product version. Like the CMS product, the Marketplace version uses
 an EKS Helm delivery option and also points buyers to the full EKS
 CloudFormation Quick Start. It can separately submit a limited-visibility EKS
-add-on delivery option for validation. GitHub authenticates to AWS with OIDC;
-no AWS access keys are stored.
+add-on delivery option for validation. It uses the same dedicated Marketplace
+AWS credentials as the approved OpenADA release workflow.
 
 The buyer flow is: subscribe to the paid container product, launch
 `cloudformation/eks.yaml`, then sign in to the UI. Marketplace ECR prevents an
@@ -19,10 +19,13 @@ The Quick Start creates the least-privilege IRSA role used for this call.
 
 Required:
 
-- `AWS_ROLE_ARN` - IAM role trusted by this GitHub repository's OIDC identity.
+- `MP_AWS_ACCESS_KEY_ID` - dedicated Marketplace AWS access key ID, stored as a
+  repository variable to match the approved OpenADA release workflow.
+- `MP_AWS_SECRET_ACCESS_KEY` - matching key, stored as a repository secret.
 - `MP_AWS_ECR` - AWS Marketplace-managed ECR registry hostname. Defaults to
   `709825985650.dkr.ecr.us-east-1.amazonaws.com`.
-- `MP_PRODUCT_ID` - Marketplace container product ID (`prod-...`).
+- `MP_AWS_MARKETPLACE_PRODUCT_ID` - Marketplace container product ID
+  (`prod-...`).
 - `MP_PRODUCT_CODE` - product code embedded in the paid auth image's startup
   configuration and passed to `RegisterUsage`.
 

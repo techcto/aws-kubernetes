@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -46,17 +45,20 @@ jobs:
 
       - name: Validate release configuration
         env:
-          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-          MP_PRODUCT_ID: ${{ vars.MP_PRODUCT_ID }}
+          MP_AWS_ACCESS_KEY_ID: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
+          MP_AWS_SECRET_ACCESS_KEY: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
+          MP_AWS_MARKETPLACE_PRODUCT_ID: ${{ vars.MP_AWS_MARKETPLACE_PRODUCT_ID }}
         run: |
-          for name in AWS_ROLE_ARN MP_PRODUCT_ID MP_PRODUCT_CODE MP_AWS_ECR; do
-            test -n "${!name:-}" || { echo "Missing GitHub repository variable $name" >&2; exit 1; }
-          done
+          test -n "$MP_AWS_ACCESS_KEY_ID" || { echo 'Missing repository variable MP_AWS_ACCESS_KEY_ID.' >&2; exit 1; }
+          test -n "$MP_AWS_SECRET_ACCESS_KEY" || { echo 'Missing repository secret MP_AWS_SECRET_ACCESS_KEY.' >&2; exit 1; }
+          test -n "$MP_AWS_MARKETPLACE_PRODUCT_ID" || { echo 'Missing repository variable MP_AWS_MARKETPLACE_PRODUCT_ID.' >&2; exit 1; }
+          test -n "$MP_PRODUCT_CODE" || { echo 'Missing repository variable MP_PRODUCT_CODE.' >&2; exit 1; }
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
 
       - name: Login to Marketplace ECR
         run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$MP_AWS_ECR"
@@ -135,7 +137,7 @@ jobs:
       - name: Submit Marketplace version
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
-          MP_PRODUCT_ID: ${{ vars.MP_PRODUCT_ID }}
+          MP_PRODUCT_ID: ${{ vars.MP_AWS_MARKETPLACE_PRODUCT_ID }}
           MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
           USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
         run: marketplace/changeset.sh
@@ -144,6 +146,6 @@ jobs:
         if: vars.MP_ENABLE_EKS_ADDON == 'true'
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
-          MP_PRODUCT_ID: ${{ vars.MP_PRODUCT_ID }}
+          MP_PRODUCT_ID: ${{ vars.MP_AWS_MARKETPLACE_PRODUCT_ID }}
           USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
         run: marketplace/changeset-addon.sh

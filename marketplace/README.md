@@ -37,7 +37,7 @@ Optional defaults:
 - `MP_WEB_REPOSITORY` (`solodev/kubernetes-ui-web`)
 - `MP_METRICS_REPOSITORY` (`solodev/kubernetes-ui-metrics-scraper`)
 - `MP_CHART_REPOSITORY` (`solodev/kubernetes-dashboard`)
-- `KUBERNETES_RELEASE_BUCKET` (`solodev-kubernetes`)
+- `KUBERNETES_RELEASE_BUCKET` (`kubernetes-ui`)
 - `USAGE_INSTRUCTIONS_URL` (`https://github.com/techcto/aws-kubernetes`)
 - `MP_ENABLE_EKS_ADDON` (`false`) - set to `true` only when the product is
   ready for AWS's separate limited-visibility EKS add-on validation.
@@ -46,9 +46,8 @@ The Marketplace portal must create/authorize every listed ECR repository for
 this product before the first release. The IAM role needs ECR push, S3 publish,
 and `marketplace-catalog:StartChangeSet` permissions.
 
-The SpaceMade web image owns gateway routing, so Marketplace submission
-contains four application images plus the OCI chart; no fifth gateway image is
-required.
+The web image provides gateway routing, so Marketplace submission contains four
+application images plus the OCI chart; no fifth gateway image is required.
 
 ## Marketplace product settings
 

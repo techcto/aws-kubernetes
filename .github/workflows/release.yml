@@ -25,7 +25,7 @@ env:
   MP_WEB_REPOSITORY: ${{ vars.MP_WEB_REPOSITORY || 'solodev/kubernetes-ui-web' }}
   MP_METRICS_REPOSITORY: ${{ vars.MP_METRICS_REPOSITORY || 'solodev/kubernetes-ui-metrics-scraper' }}
   MP_CHART_REPOSITORY: ${{ vars.MP_CHART_REPOSITORY || 'solodev/kubernetes-dashboard' }}
-  KUBERNETES_RELEASE_BUCKET: ${{ vars.KUBERNETES_RELEASE_BUCKET || 'solodev-kubernetes' }}
+  KUBERNETES_RELEASE_BUCKET: ${{ vars.KUBERNETES_RELEASE_BUCKET || 'kubernetes-ui' }}
   MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
 
 jobs:
@@ -145,9 +145,11 @@ jobs:
             helm push "release-artifacts/kubernetes-dashboard-$RELEASE_VERSION.tgz" "oci://$MP_AWS_ECR/$chart_parent"
           fi
           aws s3 cp release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation" \
-            --recursive --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
+            --recursive --exclude 'functions/*' --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
+          aws s3 cp release-artifacts/cloudformation/functions "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation/functions" \
+            --recursive --content-type application/zip --cache-control no-cache --region "$AWS_REGION" --no-progress
           aws s3 cp release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation/$RELEASE_VERSION" \
-            --recursive --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
+            --recursive --exclude 'functions/*' --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
 
       - name: Submit Marketplace version
         env:

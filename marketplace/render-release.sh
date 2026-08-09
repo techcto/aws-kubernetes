@@ -9,13 +9,14 @@ set -euo pipefail
 : "${MP_METRICS_REPOSITORY:?Set MP_METRICS_REPOSITORY}"
 : "${MP_CHART_REPOSITORY:?Set MP_CHART_REPOSITORY}"
 : "${MP_PRODUCT_CODE:?Set MP_PRODUCT_CODE}"
+: "${KUBERNETES_RELEASE_BUCKET:?Set KUBERNETES_RELEASE_BUCKET}"
 
 output="${1:-release-artifacts}"
 case "$output" in
   ""|/|.|..) echo "Refusing unsafe output directory: $output" >&2; exit 1 ;;
 esac
 rm -rf "$output"
-mkdir -p "$output/cloudformation/webstack" "$output/chart"
+mkdir -p "$output/cloudformation/webstack" "$output/cloudformation/functions/packages/WebStack" "$output/chart"
 cp -R submodules/kubernetes-ui/charts/kubernetes-dashboard/. "$output/chart/"
 
 # Marketplace releases use the self-contained SpaceMade dashboard only. The
@@ -42,6 +43,7 @@ helm package "$output/chart" --destination "$output" --version "$RELEASE_VERSION
 
 cp eks.yaml webstack.yaml "$output/cloudformation/"
 cp webstack/*.template.yaml "$output/cloudformation/webstack/"
+cp functions/packages/WebStack/lambda.zip "$output/cloudformation/functions/packages/WebStack/"
 dashboard="$output/cloudformation/webstack/webstack-dashboard.template.yaml"
 sed -i \
   -e "s|Repository: \"http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts\"|Repository: \"oci://$MP_AWS_ECR/$MP_CHART_REPOSITORY\"|" \
@@ -56,3 +58,9 @@ sed -i \
 sed -i \
   "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: \"\"|    Default: \"$MP_PRODUCT_CODE\"|" \
   "$output/cloudformation/eks.yaml"
+
+# Keep the root template, nested stacks, and Lambda package in the selected
+# release bucket. Marketplace sellers often use a bucket separate from their
+# legacy public chart repository.
+find "$output/cloudformation" -type f -name '*.yaml' -exec \
+  sed -i "s|solodev-kubernetes|$KUBERNETES_RELEASE_BUCKET|g" {} +

@@ -133,6 +133,9 @@ jobs:
         with:
           version: v3.19.0
 
+      - name: Build Quick Start Lambda package
+        run: ./cmd.sh lambda
+
       - name: Render and publish Marketplace artifacts
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}

@@ -47,10 +47,21 @@ and `marketplace-catalog:StartChangeSet` permissions.
 The web image provides gateway routing, so Marketplace submission contains four
 application images plus the OCI chart; no fifth gateway image is required.
 
+Each release supports the valid AWS delivery paths for this monthly product:
+
+- an Amazon EKS Helm delivery with the Marketplace-created service account;
+- a version-locked CloudFormation Quick Start linked from its usage instructions;
+- an optional, separately submitted limited-visibility Amazon EKS add-on.
+
+Set `MP_ENABLE_EKS_ADDON=true` to submit the add-on alongside the primary Helm
+delivery. The retired EKS Helm Quick Launch flag is intentionally not emitted.
+
 ## Marketplace product settings
 
 Use a **paid monthly container product** (for example, `$99/month`) with an
-EKS Helm delivery option compatible with EKS and EKS Anywhere. Do not publish
+Amazon EKS Helm delivery option. Do not declare EKS Anywhere compatibility:
+the paid image calls `RegisterUsage`, which AWS supports on Amazon EKS but not
+on EKS Anywhere. Do not publish
 the Marketplace image or rendered chart to a public registry. The
 CloudFormation template and source repository can be public; entitlement is
 enforced by the Marketplace-managed ECR artifacts and `RegisterUsage`.

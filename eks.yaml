@@ -1117,7 +1117,7 @@ Outputs:
   WebStackArn:
     Value: !GetAtt WebStackLambda.Arn
   AccessToken:
-    Condition: EnableDashboard
+    Condition: EnableNetwork
     Value: !GetAtt WebStack.Outputs.AccessToken
   # Bubbles up the Dashboard's own ingress hostname so Cloud recognizes this
   # cluster has an SSO-loginable URL (same AdminUrl output shape the CMS/

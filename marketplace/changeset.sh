@@ -20,7 +20,7 @@ images=(
 )
 images_json="$(printf '%s\n' "${images[@]}" | jq -R . | jq -s .)"
 
-quickstart_url="https://$KUBERNETES_RELEASE_BUCKET.s3.amazonaws.com/cloudformation/eks.yaml"
+quickstart_url="https://$KUBERNETES_RELEASE_BUCKET.s3.amazonaws.com/cloudformation/$RELEASE_VERSION/eks.yaml"
 
 details="$(jq -n \
   --arg version "$RELEASE_VERSION" \

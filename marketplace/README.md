@@ -1,12 +1,10 @@
 # AWS Marketplace release
 
-Tags matching `v*` publish SpaceMade's Kubernetes UI images, a self-contained
-Helm chart, versioned CloudFormation templates, and a paid AWS Marketplace
-container product version. Like the CMS product, the Marketplace version uses
-an EKS Helm delivery option and also points buyers to the full EKS
-CloudFormation Quick Start. It can separately submit a limited-visibility EKS
-add-on delivery option for validation. It uses the same dedicated Marketplace
-AWS credentials as the approved OpenADA release workflow.
+Tags matching `v*` build fresh immutable Kubernetes UI images, a fresh Lambda
+package, a self-contained Helm chart, and a version-locked CloudFormation tree.
+The exact same semantic version identifies every artifact and the paid AWS
+Marketplace product version. Like OpenADA, releases do not reuse build caches
+or overwrite an existing version.
 
 The buyer flow is: subscribe to the paid container product, launch
 `cloudformation/eks.yaml`, then sign in to the UI. Marketplace ECR prevents an

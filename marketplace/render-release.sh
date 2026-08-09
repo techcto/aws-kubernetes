@@ -64,3 +64,12 @@ sed -i \
 # legacy public chart repository.
 find "$output/cloudformation" -type f -name '*.yaml' -exec \
   sed -i "s|solodev-kubernetes|$KUBERNETES_RELEASE_BUCKET|g" {} +
+
+# Lock the entire Quick Start graph to this release. The stable root alias can
+# move forward, but every nested stack and Lambda package it launches remains
+# under the version-specific prefix that was rendered with it.
+find "$output/cloudformation" -type f -name '*.yaml' -exec \
+  sed -i \
+    -e "s|https://s3.amazonaws.com/$KUBERNETES_RELEASE_BUCKET/cloudformation/|https://s3.amazonaws.com/$KUBERNETES_RELEASE_BUCKET/cloudformation/$RELEASE_VERSION/|g" \
+    -e "s|Default: cloudformation/|Default: cloudformation/$RELEASE_VERSION/|g" \
+    {} +

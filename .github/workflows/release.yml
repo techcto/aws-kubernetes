@@ -133,7 +133,15 @@ jobs:
         with:
           version: v3.19.0
 
+      - name: Restore Quick Start Lambda package
+        id: lambda-cache
+        uses: actions/cache@v4
+        with:
+          path: functions/packages/WebStack/lambda.zip
+          key: quick-start-lambda-${{ runner.os }}-${{ hashFiles('cmd.sh', 'functions/source/WebStack/**') }}
+
       - name: Build Quick Start Lambda package
+        if: steps.lambda-cache.outputs.cache-hit != 'true'
         run: bash cmd.sh lambda
 
       - name: Render and publish Marketplace artifacts

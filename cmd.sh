@@ -62,6 +62,7 @@ lambda(){
         mv /tmp/linux-amd64/helm /tmp/build/helm
         chmod +x /tmp/build/helm
 
+        mkdir -p /repo/functions/packages/WebStack
         rm -f /repo/functions/packages/WebStack/lambda.zip
         cd /tmp/build
         zip -rq /repo/functions/packages/WebStack/lambda.zip . -x "*__pycache__*"

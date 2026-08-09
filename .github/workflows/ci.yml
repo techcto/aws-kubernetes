@@ -19,7 +19,10 @@ jobs:
       - name: Validate CloudFormation
         run: |
           pip install cfn-lint
-          cfn-lint eks.yaml webstack.yaml webstack/*.template.yaml
+          # These inherited templates intentionally order some conditional
+          # resources with DependsOn. Keep validating every other error while
+          # excluding that known E3005 limitation and non-fatal warnings.
+          cfn-lint --ignore-checks W E3005 --template eks.yaml webstack.yaml webstack/*.template.yaml
 
       - name: Validate Marketplace scripts
         run: bash -n marketplace/render-release.sh marketplace/changeset.sh marketplace/changeset-addon.sh

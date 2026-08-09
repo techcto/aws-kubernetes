@@ -24,13 +24,11 @@ env:
   MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
 
 jobs:
-  release:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
       - id: version
         name: Resolve version
         env:
@@ -54,6 +52,36 @@ jobs:
           test -n "$MP_AWS_MARKETPLACE_PRODUCT_ID" || { echo 'Missing repository variable MP_AWS_MARKETPLACE_PRODUCT_ID.' >&2; exit 1; }
           test -n "$MP_PRODUCT_CODE" || { echo 'Missing repository variable MP_PRODUCT_CODE.' >&2; exit 1; }
 
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - component: auth
+            context: submodules/kubernetes-ui/modules
+            dockerfile: submodules/kubernetes-ui/modules/auth/Dockerfile
+            repository: ${{ vars.MP_AUTH_REPOSITORY || 'solodev/kubernetes-ui-auth' }}
+          - component: api
+            context: submodules/kubernetes-ui/modules
+            dockerfile: submodules/kubernetes-ui/modules/api/Dockerfile
+            repository: ${{ vars.MP_API_REPOSITORY || 'solodev/kubernetes-ui-api' }}
+          - component: web
+            context: submodules/kubernetes-ui
+            dockerfile: submodules/kubernetes-ui/modules/web/Dockerfile
+            repository: ${{ vars.MP_WEB_REPOSITORY || 'solodev/kubernetes-ui-web' }}
+          - component: metrics-scraper
+            context: submodules/kubernetes-ui/modules
+            dockerfile: submodules/kubernetes-ui/modules/metrics-scraper/Dockerfile
+            repository: ${{ vars.MP_METRICS_REPOSITORY || 'solodev/kubernetes-ui-metrics-scraper' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
@@ -65,57 +93,34 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build and publish auth
+      - name: Build and publish ${{ matrix.component }}
         uses: docker/build-push-action@v6
         with:
-          context: submodules/kubernetes-ui/modules
-          file: submodules/kubernetes-ui/modules/auth/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
           sbom: false
           build-args: |
-            VERSION=${{ steps.version.outputs.value }}
-          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_AUTH_REPOSITORY }}:${{ steps.version.outputs.value }}
+            VERSION=${{ needs.prepare.outputs.version }}
+          cache-from: type=gha,scope=kubernetes-ui-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=kubernetes-ui-${{ matrix.component }}
+          tags: ${{ env.MP_AWS_ECR }}/${{ matrix.repository }}:${{ needs.prepare.outputs.version }}
 
-      - name: Build and publish API
-        uses: docker/build-push-action@v6
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          context: submodules/kubernetes-ui/modules
-          file: submodules/kubernetes-ui/modules/api/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          provenance: false
-          sbom: false
-          build-args: |
-            VERSION=${{ steps.version.outputs.value }}
-          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_API_REPOSITORY }}:${{ steps.version.outputs.value }}
+          submodules: recursive
 
-      - name: Build and publish web
-        uses: docker/build-push-action@v6
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          context: submodules/kubernetes-ui
-          file: submodules/kubernetes-ui/modules/web/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          provenance: false
-          sbom: false
-          build-args: |
-            VERSION=${{ steps.version.outputs.value }}
-          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_WEB_REPOSITORY }}:${{ steps.version.outputs.value }}
-
-      - name: Build and publish metrics scraper
-        uses: docker/build-push-action@v6
-        with:
-          context: submodules/kubernetes-ui/modules
-          file: submodules/kubernetes-ui/modules/metrics-scraper/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          provenance: false
-          sbom: false
-          build-args: |
-            VERSION=${{ steps.version.outputs.value }}
-          tags: ${{ env.MP_AWS_ECR }}/${{ env.MP_METRICS_REPOSITORY }}:${{ steps.version.outputs.value }}
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
 
       - uses: azure/setup-helm@v4
         with:
@@ -123,7 +128,7 @@ jobs:
 
       - name: Render and publish Marketplace artifacts
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           marketplace/render-release.sh release-artifacts
           aws ecr get-login-password --region "$AWS_REGION" | helm registry login --username AWS --password-stdin "$MP_AWS_ECR"
@@ -136,7 +141,7 @@ jobs:
 
       - name: Submit Marketplace version
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           MP_PRODUCT_ID: ${{ vars.MP_AWS_MARKETPLACE_PRODUCT_ID }}
           MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
           USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
@@ -145,7 +150,7 @@ jobs:
       - name: Submit limited EKS add-on
         if: vars.MP_ENABLE_EKS_ADDON == 'true'
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           MP_PRODUCT_ID: ${{ vars.MP_AWS_MARKETPLACE_PRODUCT_ID }}
           USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
         run: marketplace/changeset-addon.sh

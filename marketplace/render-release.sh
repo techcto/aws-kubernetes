@@ -12,6 +12,7 @@ set -euo pipefail
 : "${KUBERNETES_RELEASE_BUCKET:?Set KUBERNETES_RELEASE_BUCKET}"
 
 output="${1:-release-artifacts}"
+helm_bin="${HELM_BIN:-helm}"
 case "$output" in
   ""|/|.|..) echo "Refusing unsafe output directory: $output" >&2; exit 1 ;;
 esac
@@ -39,7 +40,7 @@ sed -i \
   -e "/^metricsScraper:/,/^metrics-server:/ s|tag: .*|tag: $RELEASE_VERSION|" \
   "$output/chart/values.yaml"
 
-helm package "$output/chart" --destination "$output" --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION"
+"$helm_bin" package "$output/chart" --destination "$output" --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION"
 
 cp eks.yaml kubernetes-ui.yaml webstack.yaml "$output/cloudformation/"
 cp webstack/*.template.yaml "$output/cloudformation/webstack/"
@@ -57,11 +58,7 @@ sed -i \
 
 sed -i \
   "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: \"\"|    Default: \"$MP_PRODUCT_CODE\"|" \
-  "$output/cloudformation/eks.yaml"
-
-sed -i \
-  "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: ''|    Default: '$MP_PRODUCT_CODE'|" \
-  "$output/cloudformation/kubernetes-ui.yaml"
+  "$dashboard"
 
 # Keep the root template, nested stacks, and Lambda package in the selected
 # release bucket. Marketplace sellers often use a bucket separate from their

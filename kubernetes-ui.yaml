@@ -9,7 +9,7 @@ Metadata:
       - Label: {default: Kubernetes UI}
         Parameters: [ClusterZone, CloudOIDCUrl, CloudClientId, CloudClientSecret, CloudScope, SessionSigningKey]
       - Label: {default: Version-locked release assets}
-        Parameters: [LambdaBucketName, KeyPrefix, MarketplaceProductCode]
+        Parameters: [LambdaBucketName, KeyPrefix]
 
 Parameters:
   ClusterName:
@@ -58,11 +58,6 @@ Parameters:
   KeyPrefix:
     Type: String
     Default: cloudformation/
-  MarketplaceProductCode:
-    Type: String
-    Default: ''
-    Description: AWS Marketplace product code for fixed-monthly entitlement registration.
-
 Resources:
   InstallerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -142,7 +137,6 @@ Resources:
         CloudScope: !Ref CloudScope
         SessionSigningKey: !Ref SessionSigningKey
         OIDCIssuerURL: !Ref OIDCIssuerURL
-        MarketplaceProductCode: !Ref MarketplaceProductCode
 
 Outputs:
   AdminUrl:

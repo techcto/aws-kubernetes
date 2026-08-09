@@ -306,11 +306,6 @@ Parameters:
     Default: ""
     NoEcho: true
 
-  MarketplaceProductCode:
-    Type: String
-    Description: "AWS Marketplace product code used to authorize and meter the Kubernetes UI container"
-    Default: ""
-
   ClusterZone:
     Description: This is the DNS Zone that for a single cluster
     Type: String
@@ -1090,7 +1085,6 @@ Resources:
         CloudOIDCUrl: !Ref CloudOIDCUrl
         SessionSigningKey: !Ref SessionSigningKey
         OIDCIssuerURL: !GetAtt ControlPlane.OpenIdConnectIssuerUrl
-        MarketplaceProductCode: !Ref MarketplaceProductCode
 
 #============================================================================#
 # Outputs

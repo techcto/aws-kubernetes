@@ -100,19 +100,27 @@ shown below.
 ## Option 3: Install with `eksctl` and Helm
 
 This path is useful for AWS review and for customers who do not want the full
-CloudFormation stack.
+CloudFormation stack. It was verified with the buyer-visible `1.0.4` release
+on Amazon EKS 1.36. Install AWS CLI, `kubectl`, `eksctl`, and Helm 3 first.
 
 ```bash
 export AWS_REGION=us-east-1
 export CLUSTER_NAME=my-eks-cluster
 # Use the version AWS Marketplace has approved for your account.
-export RELEASE_VERSION=1.0.3
+export RELEASE_VERSION=1.0.4
 export MP_ECR=709825985650.dkr.ecr.us-east-1.amazonaws.com
+
+aws eks update-kubeconfig \
+  --region "$AWS_REGION" \
+  --name "$CLUSTER_NAME"
 
 eksctl utils associate-iam-oidc-provider \
   --region "$AWS_REGION" \
   --cluster "$CLUSTER_NAME" \
   --approve
+
+kubectl create namespace kubernetes-dashboard \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 eksctl create iamserviceaccount \
   --region "$AWS_REGION" \
@@ -137,6 +145,9 @@ helm upgrade --install kubernetes-dashboard \
 AWS Marketplace supplies the service-account name automatically when the Helm
 delivery is launched from the buyer experience. The explicit `eksctl` command
 above creates the equivalent IRSA configuration for a manual installation.
+The subscribed account must be the AWS profile used by both `eksctl` and the
+ECR login. Set `AWS_PROFILE` before running the commands when it is not the
+default profile.
 
 ## Option 4: Install as an EKS add-on
 
@@ -149,9 +160,9 @@ versions while AWS validation is in progress.
 ## Verify the deployment
 
 ```bash
-aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER_NAME"
 kubectl get nodes
 kubectl get pods -n kubernetes-dashboard
+helm status kubernetes-dashboard -n kubernetes-dashboard
 kubectl logs -n kubernetes-dashboard \
   -l app.kubernetes.io/name=kubernetes-dashboard-auth --all-containers --tail=100
 kubectl port-forward -n kubernetes-dashboard svc/kubernetes-dashboard-web 8443:8000
@@ -186,6 +197,7 @@ eksctl delete iamserviceaccount \
   --cluster "$CLUSTER_NAME" \
   --namespace kubernetes-dashboard \
   --name kubernetes-dashboard-auth
+kubectl delete namespace kubernetes-dashboard
 ```
 
 ## Support

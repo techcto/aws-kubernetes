@@ -9,7 +9,8 @@ AWS Marketplace buyers and reviewers should start with the
 **[Kubernetes UI Quick Start](marketplace/QUICKSTART.md)**. It provides orange
 launch buttons and separate instructions for an existing EKS cluster, a new
 complete EKS environment, manual `eksctl`/Helm installation, and the optional
-EKS add-on.
+EKS add-on. The manual buyer path has been verified with Kubernetes UI `1.0.4`
+on Amazon EKS 1.36.
 
 The control plane and node group are provisioned with native
 `AWS::EKS::Cluster` / `AWS::EKS::Nodegroup` resources, and the cluster's

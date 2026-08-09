@@ -41,7 +41,7 @@ sed -i \
 
 helm package "$output/chart" --destination "$output" --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION"
 
-cp eks.yaml webstack.yaml "$output/cloudformation/"
+cp eks.yaml kubernetes-ui.yaml webstack.yaml "$output/cloudformation/"
 cp webstack/*.template.yaml "$output/cloudformation/webstack/"
 cp functions/packages/WebStack/lambda.zip "$output/cloudformation/functions/packages/WebStack/"
 dashboard="$output/cloudformation/webstack/webstack-dashboard.template.yaml"
@@ -58,6 +58,10 @@ sed -i \
 sed -i \
   "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: \"\"|    Default: \"$MP_PRODUCT_CODE\"|" \
   "$output/cloudformation/eks.yaml"
+
+sed -i \
+  "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: ''|    Default: '$MP_PRODUCT_CODE'|" \
+  "$output/cloudformation/kubernetes-ui.yaml"
 
 # Keep the root template, nested stacks, and Lambda package in the selected
 # release bucket. Marketplace sellers often use a bucket separate from their

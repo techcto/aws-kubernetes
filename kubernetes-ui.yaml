@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy Kubernetes UI into an existing Amazon EKS cluster
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Existing Amazon EKS cluster}
+        Parameters: [ClusterName, VPCID, PrivateSubnetIDs, ClusterSecurityGroupID, OIDCIssuerURL]
+      - Label: {default: Kubernetes UI}
+        Parameters: [ClusterZone, CloudOIDCUrl, CloudClientId, CloudClientSecret, CloudScope, SessionSigningKey]
+      - Label: {default: Version-locked release assets}
+        Parameters: [LambdaBucketName, KeyPrefix, MarketplaceProductCode]
+
+Parameters:
+  ClusterName:
+    Type: String
+    Description: Name of the existing Amazon EKS cluster.
+  VPCID:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC containing the existing EKS cluster.
+  PrivateSubnetIDs:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets with network access to the EKS API and outbound AWS APIs.
+  ClusterSecurityGroupID:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: EKS cluster security group returned by aws eks describe-cluster.
+  OIDCIssuerURL:
+    Type: String
+    Description: EKS cluster OIDC issuer URL. The matching IAM OIDC provider must already exist.
+  ClusterZone:
+    Type: String
+    Default: ''
+    Description: Optional DNS hostname suffix used by the Kubernetes UI ingress.
+  CloudOIDCUrl:
+    Type: String
+    Default: ''
+    Description: Optional OIDC issuer for Kubernetes UI SSO.
+  CloudClientId:
+    Type: String
+    Default: ''
+    Description: Optional OIDC client ID.
+  CloudClientSecret:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional OIDC client secret.
+  CloudScope:
+    Type: String
+    Default: openid profile email
+  SessionSigningKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Random shared key used to sign Kubernetes UI SSO sessions.
+  LambdaBucketName:
+    Type: String
+    Default: kubernetes-ui
+  KeyPrefix:
+    Type: String
+    Default: cloudformation/
+  MarketplaceProductCode:
+    Type: String
+    Default: ''
+    Description: AWS Marketplace product code for fixed-monthly entitlement registration.
+
+Resources:
+  InstallerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Kubernetes UI installer access to the existing EKS API
+      VpcId: !Ref VPCID
+  InstallerToClusterApi:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow the Kubernetes UI installer to reach the EKS API
+      GroupId: !Ref ClusterSecurityGroupID
+      SourceSecurityGroupId: !Ref InstallerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+  InstallerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: kubernetes-ui-installer
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [eks:DescribeCluster, eks:AccessKubernetesApi]
+                Resource: !Sub arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}
+              - Effect: Allow
+                Action: [ecr:GetAuthorizationToken, ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+                Resource: '*'
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents, ec2:CreateNetworkInterface, ec2:DescribeNetworkInterfaces, ec2:DeleteNetworkInterface]
+                Resource: '*'
+  InstallerAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref ClusterName
+      PrincipalArn: !GetAtt InstallerRole.Arn
+      Type: STANDARD
+      AccessPolicies:
+        - PolicyArn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope: {Type: cluster}
+  InstallerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: [InstallerAccessEntry, InstallerToClusterApi]
+    Properties:
+      Handler: lambda_function.lambda_handler
+      MemorySize: 256
+      Role: !GetAtt InstallerRole.Arn
+      Runtime: python3.13
+      Timeout: 900
+      Code:
+        S3Bucket: !Ref LambdaBucketName
+        S3Key: !Sub ${KeyPrefix}functions/packages/WebStack/lambda.zip
+      Environment:
+        Variables: {KUBECONFIG: /tmp/.kube/config}
+      VpcConfig:
+        SecurityGroupIds: [!Ref InstallerSecurityGroup]
+        SubnetIds: !Ref PrivateSubnetIDs
+  DashboardStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: InstallerFunction
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        ClusterZone: !Ref ClusterZone
+        WebStackArn: !GetAtt InstallerFunction.Arn
+        CloudOIDCUrl: !Ref CloudOIDCUrl
+        CloudClientId: !Ref CloudClientId
+        CloudClientSecret: !Ref CloudClientSecret
+        CloudScope: !Ref CloudScope
+        SessionSigningKey: !Ref SessionSigningKey
+        OIDCIssuerURL: !Ref OIDCIssuerURL
+        MarketplaceProductCode: !Ref MarketplaceProductCode
+
+Outputs:
+  AdminUrl:
+    Value: !GetAtt DashboardStack.Outputs.AdminUrl
+  InstallerRoleArn:
+    Value: !GetAtt InstallerRole.Arn

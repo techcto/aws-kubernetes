@@ -13,6 +13,9 @@ auth image also calls `RegisterUsage`; any non-throttling error (including
 `CustomerNotEntitledException`) terminates the pod before login is available.
 The Quick Start creates the least-privilege IRSA role used for this call.
 
+Customer and AWS-reviewer deployment instructions are maintained in the
+[Kubernetes UI Quick Start](QUICKSTART.md).
+
 ## GitHub repository variables
 
 Required:

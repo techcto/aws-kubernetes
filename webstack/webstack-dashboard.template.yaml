@@ -80,6 +80,7 @@ Parameters:
 Conditions:
 
   HasSso: !Not [!Equals [!Ref CloudClientId, ""]]
+  HasClusterZone: !Not [!Equals [!Ref ClusterZone, ""]]
 
 Resources:
 
@@ -122,10 +123,11 @@ Resources:
       Version: 7.14.0
       ValueYaml: !If
         - HasSso
-        - !Sub |
+        - !Sub
+          - |
             app:
               ingress:
-                enabled: true
+                enabled: ${IngressEnabled}
                 hosts:
                   - ${ClusterName}.${ClusterZone}
                 ingressClassName: nginx
@@ -163,10 +165,12 @@ Resources:
               image:
                 repository: spacemade/kubernetes-ui-web
                 tag: latest
-        - !Sub |
+          - IngressEnabled: !If [HasClusterZone, "true", "false"]
+        - !Sub
+          - |
             app:
               ingress:
-                enabled: true
+                enabled: ${IngressEnabled}
                 hosts:
                   - ${ClusterName}.${ClusterZone}
                 ingressClassName: nginx
@@ -197,6 +201,7 @@ Resources:
               image:
                 repository: spacemade/kubernetes-ui-web
                 tag: latest
+          - IngressEnabled: !If [HasClusterZone, "true", "false"]
 
 Outputs:
 

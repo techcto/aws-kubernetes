@@ -5,6 +5,12 @@ Amazon EKS cluster into an existing VPC, with an optional set of cluster
 add-ons (ingress, external DNS, TLS via cert-manager/Let's Encrypt, and the
 Kubernetes Dashboard).
 
+AWS Marketplace buyers and reviewers should start with the
+**[Kubernetes UI Quick Start](marketplace/QUICKSTART.md)**. It provides orange
+launch buttons and separate instructions for an existing EKS cluster, a new
+complete EKS environment, manual `eksctl`/Helm installation, and the optional
+EKS add-on.
+
 The control plane and node group are provisioned with native
 `AWS::EKS::Cluster` / `AWS::EKS::Nodegroup` resources, and the cluster's
 supporting Lambda functions (cluster-access lookup, load balancer
@@ -41,6 +47,7 @@ per-region resources, both of which were retired in 2024–2025.
 | Path | Purpose |
 |---|---|
 | `eks.yaml` | Root CloudFormation template: EKS control plane, node group, Load Balancer Controller, and the self-hosted helper Lambdas |
+| `kubernetes-ui.yaml` | Standalone Quick Start that installs only Kubernetes UI into an existing EKS cluster |
 | `webstack.yaml`, `webstack/` | Optional add-on stacks, installed via `AWSQS::Kubernetes::Helm` |
 | `charts/` | Helm charts owned by this repo (`network`, `dashboard`, `lets-encrypt`) and their packaged `.tgz`/`index.yaml`, published as a private Helm repo |
 | `functions/source/WebStack` | Source for the custom web-stack Lambda (see its own README for the `kubectl`/`aws` build step); `functions/packages/` holds the built `lambda.zip` |

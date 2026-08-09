@@ -70,9 +70,9 @@ Resources:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-external-dns.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
-  # nginx-ingress's Service provisions an AWS NLB via annotations that the LB
-  # controller watches for - it must already be running first, or nginx-ingress
-  # comes up with no external address.
+  # Optional stacks cannot be named in DependsOn because CloudFormation removes
+  # conditioned-off resources before resolving dependencies. Kubernetes
+  # controllers reconcile the ingress resources when they become available.
   LoadBalancerControllerStack:
     Condition: EnableLoadBalancerController
     Type: AWS::CloudFormation::Stack
@@ -85,7 +85,6 @@ Resources:
         SettleWaitFunctionArn: !Ref SettleWaitFunctionArn
         WebStackArn: !Ref WebStackArn
   NginxIngressStack:
-    DependsOn: [ ExternalDNSStack, LoadBalancerControllerStack ]
     Condition: EnableNginxIngress
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -104,7 +103,6 @@ Resources:
         WebStackArn: !Ref WebStackArn
   NetworkStack:
     Condition: EnableNetwork
-    DependsOn: LetsEncryptStack
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-network.template.yaml

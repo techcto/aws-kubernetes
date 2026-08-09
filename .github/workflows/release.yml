@@ -8,6 +8,11 @@ on:
       release_version:
         description: Release version without the leading v
         required: true
+      publish_only:
+        description: Reuse existing images and chart; publish templates and submit Marketplace only
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,6 +59,7 @@ jobs:
 
   build:
     needs: prepare
+    if: ${{ !inputs.publish_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -110,6 +116,7 @@ jobs:
 
   release:
     needs: [prepare, build]
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.build.result == 'success' || inputs.publish_only) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,15 +136,18 @@ jobs:
       - name: Render and publish Marketplace artifacts
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          PUBLISH_ONLY: ${{ inputs.publish_only || false }}
         run: |
           marketplace/render-release.sh release-artifacts
-          aws ecr get-login-password --region "$AWS_REGION" | helm registry login --username AWS --password-stdin "$MP_AWS_ECR"
-          chart_parent="${MP_CHART_REPOSITORY%/*}"
-          helm push "release-artifacts/kubernetes-dashboard-$RELEASE_VERSION.tgz" "oci://$MP_AWS_ECR/$chart_parent"
-          aws s3 sync release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation" \
-            --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
-          aws s3 sync release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation/$RELEASE_VERSION" \
-            --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
+          if [ "$PUBLISH_ONLY" != "true" ]; then
+            aws ecr get-login-password --region "$AWS_REGION" | helm registry login --username AWS --password-stdin "$MP_AWS_ECR"
+            chart_parent="${MP_CHART_REPOSITORY%/*}"
+            helm push "release-artifacts/kubernetes-dashboard-$RELEASE_VERSION.tgz" "oci://$MP_AWS_ECR/$chart_parent"
+          fi
+          aws s3 cp release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation" \
+            --recursive --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
+          aws s3 cp release-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation/$RELEASE_VERSION" \
+            --recursive --content-type text/yaml --cache-control no-cache --region "$AWS_REGION" --no-progress
 
       - name: Submit Marketplace version
         env:

@@ -9,7 +9,6 @@ from hashlib import md5
 
 import boto3
 import botocore.signers
-import urllib3
 import yaml
 from kubernetes import client as k8s_client
 from kubernetes import dynamic as k8s_dynamic
@@ -25,9 +24,7 @@ helper = CfnResource(json_logging=True, log_level="DEBUG")
 # without these, an unreachable endpoint fails after minutes instead of
 # seconds, burning through the whole Lambda timeout across a few retries
 # without ever surfacing a useful error.
-NET_TIMEOUT = urllib3.Timeout(connect=10, read=20)
 K8S_TIMEOUT = (10, 20)
-http = urllib3.PoolManager(timeout=NET_TIMEOUT, retries=False)
 
 try:
     iam_client = boto3.client('iam')
@@ -76,12 +73,10 @@ def k8s_api_client(cluster_name):
     return k8s_client.ApiClient(configuration)
 
 
-def apply_manifest_url(api_client, url):
-    """Applies every document in a remote multi-doc YAML manifest, roughly
-    equivalent to `kubectl apply -f <url>`."""
+def apply_manifest_documents(api_client, documents):
+    """Applies every document in a multi-doc YAML manifest."""
     dynamic_client = k8s_dynamic.DynamicClient(api_client)
-    body = http.request('GET', url, timeout=NET_TIMEOUT).data
-    for doc in yaml.safe_load_all(body):
+    for doc in yaml.safe_load_all(documents):
         if not doc:
             continue
         resource = dynamic_client.resources.get(api_version=doc['apiVersion'], kind=doc['kind'])
@@ -91,6 +86,32 @@ def apply_manifest_url(api_client, url):
         except k8s_dynamic.exceptions.ConflictError:
             resource.patch(body=doc, namespace=doc.get('metadata', {}).get('namespace'),
                             content_type='application/merge-patch+json', _request_timeout=K8S_TIMEOUT)
+
+
+def apply_manifest_file(api_client, path, replacements=None):
+    with open(path, encoding='utf-8') as manifest_file:
+        body = manifest_file.read()
+    for source, replacement in (replacements or {}).items():
+        body = body.replace(source, replacement)
+    apply_manifest_documents(api_client, body)
+
+
+def delete_manifest_file(api_client, path):
+    dynamic_client = k8s_dynamic.DynamicClient(api_client)
+    with open(path, encoding='utf-8') as manifest_file:
+        documents = list(yaml.safe_load_all(manifest_file.read()))
+    for doc in reversed(documents):
+        if not doc:
+            continue
+        resource = dynamic_client.resources.get(api_version=doc['apiVersion'], kind=doc['kind'])
+        metadata = doc.get('metadata', {})
+        try:
+            resource.delete(
+                name=metadata['name'], namespace=metadata.get('namespace'),
+                _request_timeout=K8S_TIMEOUT,
+            )
+        except k8s_dynamic.exceptions.NotFoundError:
+            pass
 
 
 def enable_marketplace(api_client, cluster_name, namespace, role_name):
@@ -282,8 +303,8 @@ def helm_uninstall(props):
 
 
 def enable_solodev(api_client):
-    apply_manifest_url(api_client, "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/admin-role.yaml")
-    apply_manifest_url(api_client, "http://solodev-kubernetes.s3-website-us-east-1.amazonaws.com/charts/network/storage-class.yaml")
+    apply_manifest_file(api_client, '/var/task/manifests/network-admin-role.yaml')
+    apply_manifest_file(api_client, '/var/task/manifests/network-storage-class.yaml')
 
     # Kubernetes 1.24+ no longer auto-creates a long-lived Secret for a
     # ServiceAccount - request a token directly via the TokenRequest API.
@@ -292,6 +313,15 @@ def enable_solodev(api_client):
     response = core_v1.create_namespaced_service_account_token(
         "solodev-admin", "kube-system", token_request, _request_timeout=K8S_TIMEOUT)
     helper.Data['Token'] = response.status.token
+
+
+def enable_lets_encrypt(api_client, admin_email):
+    apply_manifest_file(
+        api_client,
+        '/var/task/manifests/issuer-prod.yaml',
+        {'{{ .Values.ssl.email }}': admin_email},
+    )
+    apply_manifest_file(api_client, '/var/task/manifests/issuer-dev.yaml')
 
 
 @helper.create
@@ -322,6 +352,9 @@ def create_handler(event, context):
                 )
             if 'Solodev' in event['ResourceProperties'].keys():
                 enable_solodev(api_client)
+            if 'LetsEncrypt' in event['ResourceProperties'].keys():
+                enable_lets_encrypt(api_client, event['ResourceProperties']['AdminEmail'])
+                outp = 'letsencrypt-issuers'
             break
         except Exception as e:
             if retry_timeout < 1:
@@ -348,6 +381,10 @@ def create_handler(event, context):
 def delete_handler(event, context):
     if event['ResourceType'] == 'Custom::Helm':
         helm_uninstall(event['ResourceProperties'])
+    if 'LetsEncrypt' in event.get('ResourceProperties', {}):
+        api_client = k8s_api_client(event['ResourceProperties']['ClusterName'])
+        delete_manifest_file(api_client, '/var/task/manifests/issuer-dev.yaml')
+        delete_manifest_file(api_client, '/var/task/manifests/issuer-prod.yaml')
     return ''
 
 

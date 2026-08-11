@@ -1,12 +1,10 @@
 # WebStack Lambda
 
-Custom CloudFormation resource backing `webstack-network` and the
-`ProvisionWeave`/marketplace-service-account setup in `eks.yaml`. Shells
-out to `kubectl` and `aws` (via `crhelper`'s `run_command`), so both
-binaries must be present in the deployment package at `bin/` - there is
-no Lambda layer for them anymore (the `eks-quickstart-Kubectl`/`AwsCli`
-layers this used to depend on came from the now-retired AWS Quick Start
-shared resources).
+Custom CloudFormation resource backing Helm installs, network bootstrap,
+subnet tagging, and the cert-manager ClusterIssuer setup. The deployment
+package includes the Kubernetes Python client, Helm, and the repository-owned
+network/Let's Encrypt manifests, so stack creation does not depend on the
+retired public S3 Helm repository.
 
 `eks.yaml` sets `PATH` to include `/var/task/bin`, so `kubectl`/`aws`
 need to land there inside the deployment package.
@@ -20,9 +18,9 @@ From the repo root:
 ```
 
 This does everything inside a container matching the Lambda runtime
-(`public.ecr.aws/lambda/python:3.13`, `x86_64`) — fetches `kubectl` and
-AWS CLI v2 into `bin/` if they're not already there, then zips the whole
-directory into `functions/packages/WebStack/lambda.zip`. Requires Docker.
+(`public.ecr.aws/lambda/python:3.13`, `x86_64`) — installs the Python
+dependencies, vendors Helm and the local manifests, then creates
+`functions/packages/WebStack/lambda.zip`. Requires Docker.
 
 It always runs in Docker, even on Linux/macOS: zipping on the host can
 silently drop the executable bit (NTFS has no such concept at all, and

@@ -56,6 +56,11 @@ lambda(){
 
         rm -rf /tmp/build && mkdir -p /tmp/build
         cp functions/source/WebStack/lambda_function.py /tmp/build/
+        mkdir -p /tmp/build/manifests
+        cp charts/network/templates/admin-role.yaml /tmp/build/manifests/network-admin-role.yaml
+        cp charts/network/templates/storage-class.yaml /tmp/build/manifests/network-storage-class.yaml
+        cp charts/lets-encrypt/templates/issuer-prod.yaml /tmp/build/manifests/issuer-prod.yaml
+        cp charts/lets-encrypt/templates/issuer-dev.yaml /tmp/build/manifests/issuer-dev.yaml
         pip install --quiet --target /tmp/build kubernetes pyyaml crhelper --no-cache-dir --upgrade
 
         curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm

@@ -40,7 +40,9 @@ per-region resources, both of which were retired in 2024–2025.
   - RBAC for SSO login into the Dashboard: a `dashboard-api` ServiceAccount
     allowed to impersonate users/groups, plus ClusterRoleBindings mapping
     Keycloak's `view`/`edit`/`admin` client roles onto Kubernetes' own
-    built-in `view`/`edit`/`cluster-admin` ClusterRoles (see
+    built-in `view`/`edit`/`admin` ClusterRoles through organization-scoped
+    `spacemade:namespace:<org>:<role>` groups; only the launcher receives
+    cluster-admin access (see
     `charts/network/templates/admin-role.yaml`)
 
 ## Repository layout

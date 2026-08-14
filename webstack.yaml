@@ -12,6 +12,10 @@ Parameters:
     Type: String
     Default: ""
     Description: "What is your email address?"
+  AccessNamespace:
+    Type: String
+    Default: default
+    AllowedPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
   ProvisionNginxIngress:
     Type: String
     AllowedValues: [ "Enabled", "Disabled" ]
@@ -109,6 +113,7 @@ Resources:
       Parameters:
         ClusterName: !Ref ClusterName
         WebStackArn: !Ref WebStackArn
+        AccessNamespace: !Ref AccessNamespace
 
 #============================================================================#
 # Outputs

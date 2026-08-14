@@ -306,6 +306,12 @@ Parameters:
     Default: ""
     NoEcho: true
 
+  AccessNamespace:
+    Type: String
+    Description: "Kubernetes namespace assigned to non-owner SSO users. The owner retains cluster-admin access."
+    Default: default
+    AllowedPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+
   ClusterZone:
     Description: This is the DNS Zone that for a single cluster
     Type: String
@@ -1059,6 +1065,7 @@ Resources:
         ClusterName: !Ref ControlPlane
         ClusterZone: !Ref ClusterZone
         WebStackArn: !GetAtt WebStackLambda.Arn
+        AccessNamespace: !Ref AccessNamespace
         AdminEmail: !Ref AdminEmail
         ProvisionNginxIngress: !Ref 'ProvisionNginxIngress'
         ProvisionExternalDNS: !Ref 'ProvisionExternalDNS'

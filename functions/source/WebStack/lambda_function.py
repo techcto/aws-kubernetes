@@ -302,8 +302,26 @@ def helm_uninstall(props):
             raise
 
 
-def enable_solodev(api_client):
-    apply_manifest_file(api_client, '/var/task/manifests/network-admin-role.yaml')
+def enable_solodev(api_client, access_namespace):
+    # Releases before namespace-scoped SSO used cluster-wide bindings for
+    # admin/edit/view. Remove them during update or they would continue to
+    # grant access even after the new RoleBindings are applied.
+    rbac_v1 = k8s_client.RbacAuthorizationV1Api(api_client)
+    for binding_name in ('sso-admin', 'sso-edit', 'sso-view'):
+        try:
+            rbac_v1.delete_cluster_role_binding(
+                binding_name,
+                _request_timeout=K8S_TIMEOUT,
+            )
+        except k8s_client.exceptions.ApiException as error:
+            if error.status != 404:
+                raise
+
+    apply_manifest_file(
+        api_client,
+        '/var/task/manifests/network-admin-role.yaml',
+        {'{{ .Values.accessNamespace }}': access_namespace},
+    )
     apply_manifest_file(api_client, '/var/task/manifests/network-storage-class.yaml')
 
     # Kubernetes 1.24+ no longer auto-creates a long-lived Secret for a
@@ -351,7 +369,10 @@ def create_handler(event, context):
                     event['ResourceProperties']['ServiceRoleName'],
                 )
             if 'Solodev' in event['ResourceProperties'].keys():
-                enable_solodev(api_client)
+                enable_solodev(
+                    api_client,
+                    event['ResourceProperties'].get('AccessNamespace', 'default'),
+                )
             if 'LetsEncrypt' in event['ResourceProperties'].keys():
                 enable_lets_encrypt(api_client, event['ResourceProperties']['AdminEmail'])
                 outp = 'letsencrypt-issuers'

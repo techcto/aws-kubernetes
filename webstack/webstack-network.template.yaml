@@ -21,6 +21,11 @@ Parameters:
   ClusterName:
     Type: String
 
+  AccessNamespace:
+    Type: String
+    Default: default
+    AllowedPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+
 Resources:
 
   Solodev:
@@ -28,6 +33,7 @@ Resources:
     Properties:
       ServiceToken: !Ref WebStackArn
       ClusterName: !Ref ClusterName
+      AccessNamespace: !Ref AccessNamespace
       Solodev:
         Enable: "true"
 

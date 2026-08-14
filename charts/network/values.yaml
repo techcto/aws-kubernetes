@@ -1,3 +1,4 @@
 env: prod
 ssl:
   email: ssl@domain.com
+accessNamespace: default

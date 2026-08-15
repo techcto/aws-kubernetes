@@ -1086,6 +1086,7 @@ Resources:
         ClusterName: !Ref ControlPlane
         ClusterZone: !Ref ClusterZone
         WebStackArn: !GetAtt WebStackLambda.Arn
+        AccessNamespace: !Ref AccessNamespace
         CloudClientId: !Ref CloudClientId
         CloudClientSecret: !Ref CloudClientSecret
         CloudScope: !Ref CloudScope

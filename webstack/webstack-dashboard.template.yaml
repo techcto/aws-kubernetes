@@ -13,6 +13,7 @@ Metadata:
           - ClusterName
           - ClusterZone
           - Namespace
+          - AccessNamespace
           - WebStackArn
       -
         Label:
@@ -37,6 +38,12 @@ Parameters:
   Namespace:
     Type: String
     Default: "kubernetes-dashboard"
+
+  AccessNamespace:
+    Type: String
+    Description: "Organization namespace selected by default in Kubernetes UI."
+    Default: default
+    AllowedPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
 
   ClusterZone:
     Description: This is the DNS Zone that for a single cluster
@@ -126,6 +133,11 @@ Resources:
         - !Sub
           - |
             app:
+              settings:
+                global:
+                  defaultNamespace: ${AccessNamespace}
+                  namespaceFallbackList:
+                    - ${AccessNamespace}
               ingress:
                 enabled: ${IngressEnabled}
                 hosts:
@@ -169,6 +181,11 @@ Resources:
         - !Sub
           - |
             app:
+              settings:
+                global:
+                  defaultNamespace: ${AccessNamespace}
+                  namespaceFallbackList:
+                    - ${AccessNamespace}
               ingress:
                 enabled: ${IngressEnabled}
                 hosts:

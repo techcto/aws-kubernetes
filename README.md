@@ -44,6 +44,9 @@ per-region resources, both of which were retired in 2024–2025.
     `spacemade:namespace:<org>:<role>` groups; only the launcher receives
     cluster-admin access (see
     `charts/network/templates/admin-role.yaml`)
+  - The same `AccessNamespace` value is passed into the Dashboard Helm
+    settings as `defaultNamespace` and its fallback namespace, so every SSO
+    role lands in the organization namespace instead of `default`
 
 ## Repository layout
 

@@ -7,7 +7,7 @@ Metadata:
       - Label: {default: Existing Amazon EKS cluster}
         Parameters: [ClusterName, VPCID, PrivateSubnetIDs, ClusterSecurityGroupID, OIDCIssuerURL]
       - Label: {default: Kubernetes UI}
-        Parameters: [ClusterZone, CloudOIDCUrl, CloudClientId, CloudClientSecret, CloudScope, SessionSigningKey]
+        Parameters: [ClusterZone, AccessNamespace, CloudOIDCUrl, CloudClientId, CloudClientSecret, CloudScope, SessionSigningKey]
       - Label: {default: Version-locked release assets}
         Parameters: [LambdaBucketName, KeyPrefix]
 
@@ -31,6 +31,11 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional DNS hostname suffix used by the Kubernetes UI ingress.
+  AccessNamespace:
+    Type: String
+    Default: default
+    Description: Organization namespace selected by default in Kubernetes UI.
+    AllowedPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
   CloudOIDCUrl:
     Type: String
     Default: ''
@@ -131,6 +136,7 @@ Resources:
         ClusterName: !Ref ClusterName
         ClusterZone: !Ref ClusterZone
         WebStackArn: !GetAtt InstallerFunction.Arn
+        AccessNamespace: !Ref AccessNamespace
         CloudOIDCUrl: !Ref CloudOIDCUrl
         CloudClientId: !Ref CloudClientId
         CloudClientSecret: !Ref CloudClientSecret

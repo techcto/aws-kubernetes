@@ -97,17 +97,19 @@ For a minimal evaluation without DNS, disable ExternalDNS, ingress, and the
 load-balancer controller. Access the service with `kubectl port-forward` as
 shown below.
 
-## Option 3: Install with `eksctl` and Helm
+## Option 3: Test the UI chart on any existing Amazon EKS cluster
 
 This path is useful for AWS review and for customers who do not want the full
-CloudFormation stack. It was verified with the buyer-visible `1.0.4` release
-on Amazon EKS 1.36. Install AWS CLI, `kubectl`, `eksctl`, and Helm 3 first.
+CloudFormation stack. It installs only the Marketplace UI chart and does not
+modify the cluster control plane or node groups. Install AWS CLI, `kubectl`,
+`eksctl`, and Helm 3 first.
 
 ```bash
 export AWS_REGION=us-east-1
 export CLUSTER_NAME=my-eks-cluster
-# Use the version AWS Marketplace has approved for your account.
-export RELEASE_VERSION=1.0.4
+# Replace this with the version AWS Marketplace shows as available to the
+# subscribed buyer account. The repository's current release is shown here.
+export RELEASE_VERSION=1.1.2
 export MP_ECR=709825985650.dkr.ecr.us-east-1.amazonaws.com
 
 aws eks update-kubeconfig \
@@ -168,7 +170,14 @@ kubectl logs -n kubernetes-dashboard \
 kubectl port-forward -n kubernetes-dashboard svc/kubernetes-dashboard-web 8443:8000
 ```
 
-Open <http://localhost:8443>. The auth container must successfully register
+In a second terminal, verify that the UI responds, then open it in a browser:
+
+```bash
+curl --fail --head http://127.0.0.1:8443
+```
+
+Open <http://localhost:8443>. This confirms the chart, Marketplace images,
+services, and UI are running on the existing EKS cluster. The auth container must successfully register
 the subscribed account before login is available. If the account is not
 subscribed, the pod reports `CustomerNotEntitledException` and does not expose
 the application.

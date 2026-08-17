@@ -21,6 +21,13 @@ Parameters:
   WebStackArn:
     Type: String
 
+  # Ordering token supplied by webstack.yaml. It is intentionally not consumed
+  # by the Helm resource; the parent stack's conditional Ref is what establishes
+  # safe create/delete ordering with the optional load-balancer controller.
+  LoadBalancerControllerDependency:
+    Type: String
+    Default: disabled
+
 Resources:
 
   NginxIngress:

@@ -39,7 +39,8 @@ Optional defaults:
 - `MP_METRICS_REPOSITORY` (`solodev/kubernetes-ui-metrics-scraper`)
 - `MP_CHART_REPOSITORY` (`solodev/kubernetes-dashboard`)
 - `KUBERNETES_RELEASE_BUCKET` (`kubernetes-ui`)
-- `USAGE_INSTRUCTIONS_URL` (`https://github.com/techcto/aws-kubernetes`)
+- `USAGE_INSTRUCTIONS_URL`
+  (`https://github.com/techcto/aws-kubernetes/blob/master/marketplace/QUICKSTART.md`)
 - `MP_ENABLE_EKS_ADDON` (`false`) - set to `true` only when the product is
   ready for AWS's separate limited-visibility EKS add-on validation.
 

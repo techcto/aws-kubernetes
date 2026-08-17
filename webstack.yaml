@@ -74,9 +74,12 @@ Resources:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-external-dns.template.yaml
       Parameters:
         ClusterName: !Ref ClusterName
-  # Optional stacks cannot be named in DependsOn because CloudFormation removes
-  # conditioned-off resources before resolving dependencies. Kubernetes
-  # controllers reconcile the ingress resources when they become available.
+  # These stacks are optional, so a literal DependsOn cannot safely reference
+  # the conditioned load-balancer-controller stack. Nginx instead receives a
+  # conditionally resolved token below. When the controller is enabled, that
+  # Ref creates the required implicit ordering: controller before Nginx on
+  # create, Nginx before controller on delete. That lets the controller remove
+  # Nginx's AWS NLB/finalizers before the controller itself is uninstalled.
   LoadBalancerControllerStack:
     Condition: EnableLoadBalancerController
     Type: AWS::CloudFormation::Stack
@@ -96,6 +99,10 @@ Resources:
       Parameters:
         ClusterName: !Ref ClusterName
         WebStackArn: !Ref WebStackArn
+        LoadBalancerControllerDependency: !If
+          - EnableLoadBalancerController
+          - !Ref LoadBalancerControllerStack
+          - disabled
   LetsEncryptStack:
     Condition: EnableNginxIngress
     Type: AWS::CloudFormation::Stack

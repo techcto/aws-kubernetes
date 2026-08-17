@@ -138,7 +138,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           MP_PRODUCT_ID: ${{ vars.MP_AWS_MARKETPLACE_PRODUCT_ID }}
           MP_PRODUCT_CODE: ${{ vars.MP_PRODUCT_CODE }}
-          USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
+          USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes/blob/master/marketplace/QUICKSTART.md' }}
         run: marketplace/changeset.sh
 
       - name: Submit limited EKS add-on
@@ -146,5 +146,5 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           MP_PRODUCT_ID: ${{ vars.MP_AWS_MARKETPLACE_PRODUCT_ID }}
-          USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes' }}
+          USAGE_INSTRUCTIONS_URL: ${{ vars.USAGE_INSTRUCTIONS_URL || 'https://github.com/techcto/aws-kubernetes/blob/master/marketplace/QUICKSTART.md' }}
         run: marketplace/changeset-addon.sh

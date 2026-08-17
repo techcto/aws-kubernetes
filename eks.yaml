@@ -1053,12 +1053,13 @@ Resources:
     # nginx-ingress/external-dns/dashboard/load-balancer-controller all need a
     # node to schedule onto before their Helm installs can succeed.
     # PodIdentityAgentAddon must be running before external-dns's PodIdentityAssociation
-    # can be created. HelmAccessEntry must outlive WebStack's nested Helm resources on
-    # delete too - a Helm uninstall re-auths to the cluster, and without this dependency
-    # CFN is free to tear down the access entry before those delete handlers run, which
-    # fails with a Kubernetes auth error ("the server has asked for the client to
-    # provide credentials").
-    DependsOn: [ WebStackLambda, NodeGroupSettleWait, PodIdentityAgentAddon, HelmAccessEntry, SubnetTags ]
+    # can be created. AdminAccessEntry (the identity actually assumed by WebStackLambda)
+    # and the Lambda-to-control-plane ingress rule must
+    # outlive WebStack's nested Helm resources on delete too. Without these dependencies
+    # CFN can remove authentication or port-443 network access while the cluster itself
+    # is still running, causing Helm cleanup to fail with an auth error or a private EKS
+    # endpoint timeout.
+    DependsOn: [ WebStackLambda, NodeGroupSettleWait, PodIdentityAgentAddon, AdminAccessEntry, SubnetTags, ClusterControlPlaneSecurityGroupIngress ]
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack.yaml
       Parameters:
@@ -1078,7 +1079,11 @@ Resources:
 
   DashboardStack:
     Condition: EnableDashboard
-    DependsOn: WebStack
+    # Keep private API access alive through the dashboard chart's own delete
+    # callback as well as the WebStack chart callbacks. This is intentionally
+    # explicit even though WebStack has the same dependency: it protects this
+    # independently nested Helm stack if the surrounding graph is refactored.
+    DependsOn: [ WebStack, AdminAccessEntry, ClusterControlPlaneSecurityGroupIngress ]
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml

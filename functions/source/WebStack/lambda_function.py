@@ -96,10 +96,13 @@ def apply_manifest_file(api_client, path, replacements=None):
     apply_manifest_documents(api_client, body)
 
 
-def delete_manifest_file(api_client, path):
+def delete_manifest_file(api_client, path, replacements=None):
     dynamic_client = k8s_dynamic.DynamicClient(api_client)
     with open(path, encoding='utf-8') as manifest_file:
-        documents = list(yaml.safe_load_all(manifest_file.read()))
+        body = manifest_file.read()
+    for source, replacement in (replacements or {}).items():
+        body = body.replace(source, replacement)
+    documents = list(yaml.safe_load_all(body))
     for doc in reversed(documents):
         if not doc:
             continue
@@ -296,10 +299,36 @@ def helm_uninstall(props):
     try:
         run_helm(args + helm_kube_args(props['ClusterName']))
     except RuntimeError as e:
-        if 'release: not found' in str(e).lower():
+        error = str(e).lower()
+        if 'release: not found' in error:
             logger.info("Release already gone, nothing to uninstall")
+        elif cluster_api_unreachable(error):
+            # CloudFormation must still be able to delete the stack when the
+            # EKS control plane (especially a private endpoint) has already
+            # become unreachable. There is nothing Helm can clean up once the
+            # API is gone, and all in-cluster resources disappear with EKS.
+            logger.warning(
+                "Skipping Helm uninstall because the Kubernetes API is unreachable: %s",
+                e,
+            )
         else:
             raise
+
+
+def cluster_api_unreachable(error):
+    error = str(error).lower()
+    return any(marker in error for marker in (
+        'kubernetes cluster unreachable',
+        'i/o timeout',
+        'dial tcp',
+        'connection refused',
+        'context deadline exceeded',
+        'no such host',
+        'temporary failure in name resolution',
+        'max retries exceeded',
+        'connect timeout',
+        'connection timed out',
+    ))
 
 
 def enable_solodev(api_client, access_namespace):
@@ -403,9 +432,21 @@ def delete_handler(event, context):
     if event['ResourceType'] == 'Custom::Helm':
         helm_uninstall(event['ResourceProperties'])
     if 'LetsEncrypt' in event.get('ResourceProperties', {}):
-        api_client = k8s_api_client(event['ResourceProperties']['ClusterName'])
-        delete_manifest_file(api_client, '/var/task/manifests/issuer-dev.yaml')
-        delete_manifest_file(api_client, '/var/task/manifests/issuer-prod.yaml')
+        try:
+            api_client = k8s_api_client(event['ResourceProperties']['ClusterName'])
+            delete_manifest_file(api_client, '/var/task/manifests/issuer-dev.yaml')
+            delete_manifest_file(
+                api_client,
+                '/var/task/manifests/issuer-prod.yaml',
+                {'{{ .Values.ssl.email }}': event['ResourceProperties']['AdminEmail']},
+            )
+        except Exception as error:
+            if not cluster_api_unreachable(error):
+                raise
+            logger.warning(
+                "Skipping manifest cleanup because the Kubernetes API is unreachable: %s",
+                error,
+            )
     return ''
 
 

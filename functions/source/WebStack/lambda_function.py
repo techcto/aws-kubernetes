@@ -318,6 +318,13 @@ def helm_uninstall(props):
 def cluster_api_unreachable(error):
     error = str(error).lower()
     return any(marker in error for marker in (
+        # Delete callbacks must be idempotent. CloudFormation can resume a
+        # partially completed stack deletion after the EKS control plane has
+        # already been removed. There is nothing left in Kubernetes to clean
+        # up in that case, so ResourceNotFound is a successful no-op just like
+        # an unreachable API endpoint.
+        'resourcenotfoundexception',
+        'no cluster found for name',
         'kubernetes cluster unreachable',
         'i/o timeout',
         'dial tcp',

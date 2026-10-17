@@ -1,0 +1,189 @@
+# Save tagged release artifacts before pushing the version tag.
+# Change version_status to active to publish imported versions automatically.
+catalog-item:
+  name: kubernetes
+version:
+  description: 'Default Kubernetes cluster version'
+  resource_url: 'https://kubernetes-ui.s3.amazonaws.com/cloudformation/${Git.Version}/eks.yaml'
+  resource_params: |
+    capacity:
+      label: Nodes
+      parameter: NumberOfNodes
+      maximum_parameter: MaxNumberOfNodes
+      included: 2
+      management_included: 0
+      minimum: 2
+      maximum: 10
+      unit: node
+      overage_price: 5
+    marketplace:
+      product_code: 3hyqc0li3ot9242x6e6t0rxoe
+    build:
+      -
+        ParameterKey: VPCID
+        ParameterValue: '${Picker.AWSVPCID}'
+      -
+        ParameterKey: PublicSubnet1ID
+        ParameterValue: '${Picker.AWSSubnetID}'
+      -
+        ParameterKey: PublicSubnet2ID
+        ParameterValue: '${Picker.AWSSubnetID}'
+      -
+        ParameterKey: PrivateSubnet1ID
+        ParameterValue: '${Picker.AWSSubnetID}'
+      -
+        ParameterKey: PrivateSubnet2ID
+        ParameterValue: '${Picker.AWSSubnetID}'
+      -
+        ParameterKey: KeyPairName
+        ParameterValue: '${Picker.AWSKeyPairName}'
+      -
+        ParameterKey: NodeInstanceType
+        ParameterValue: 't3.medium'
+      -
+        ParameterKey: NumberOfNodes
+        ParameterValue: '2'
+      -
+        ParameterKey: NodeVolumeSize
+        ParameterValue: '20'
+      -
+        ParameterKey: KubernetesVersion
+        ParameterValue: '1.36'
+      -
+        ParameterKey: MaxNumberOfNodes
+        ParameterValue: '10'
+      -
+        ParameterKey: AdminEmail
+        ParameterValue: '${Picker.UserEmail}'
+      -
+        # Release asset location is managed by the Kubernetes UI product,
+        # not supplied by the customer.
+        ParameterKey: LambdaBucketName
+        ParameterValue: 'kubernetes-ui'
+      -
+        ParameterKey: KeyPrefix
+        ParameterValue: 'cloudformation/'
+      -
+        # Resolved from the "Hosted Zone" picker (my_hosted_zone_id) via
+        # ClusterProvider at deploy time - hidden here so it's not also
+        # shown as a free-text field a user could type wrong.
+        ParameterKey: ClusterZone
+        ParameterValue: '${Cluster.HostedZone.name}'
+      -
+        # Resolved from Cloud's own Keycloak client for this cluster via
+        # ClusterProvider's Sso magic key - never user input. Naming these
+        # by magic token (not hardcoded PHP) so other cluster-type templates
+        # (Fargate, EKS-Anywhere) can wire up SSO under their own parameter names.
+        ParameterKey: CloudClientId
+        ParameterValue: '${Cluster.Sso.ClientId}'
+      -
+        ParameterKey: CloudClientSecret
+        ParameterValue: '${Cluster.Sso.ClientSecret}'
+      -
+        ParameterKey: CloudOIDCUrl
+        ParameterValue: '${Cluster.Sso.OidcIssuerUrl}'
+      -
+        ParameterKey: CloudScope
+        ParameterValue: '${Cluster.Sso.Scopes}'
+      -
+        ParameterKey: SessionSigningKey
+        ParameterValue: '${Cluster.Sso.SessionSigningKey}'
+      -
+        # Namespace used by the Dashboard's namespace-scoped admin/edit/view
+        # RoleBindings. The launcher remains the cluster-wide owner.
+        ParameterKey: AccessNamespace
+        ParameterValue: '${Cluster.Organization.name}'
+      -
+        # Core feature toggles - Cloud's Kubernetes offering is opinionated
+        # (Dashboard + Ingress + LB controller + DNS always on), not an
+        # a-la-carte CFN form, so these aren't user-facing choices.
+        ParameterKey: ProvisionNetwork
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: ProvisionDashboard
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: ProvisionLoadBalancerController
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: ProvisionNginxIngress
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: ProvisionExternalDNS
+        ParameterValue: 'Enabled'
+      -
+        # Deprecated/legacy networking option - must stay off.
+        ParameterKey: ProvisionWeave
+        ParameterValue: 'Disabled'
+      -
+        # Needed for kubectl/Dashboard access from outside the VPC.
+        ParameterKey: EKSPublicAccessEndpoint
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: EKSPrivateAccessEndpoint
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: EKSPublicAccessCIDRs
+        ParameterValue: '0.0.0.0/0'
+      -
+        # Required for IRSA/Pod Identity (LB controller, EBS CSI, external-dns).
+        ParameterKey: IamOidcProvider
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: EKSEncryptSecrets
+        ParameterValue: 'Enabled'
+      -
+        ParameterKey: ManagedNodeGroup
+        ParameterValue: 'Yes'
+      -
+        ParameterKey: NodeGroupType
+        ParameterValue: 'Managed'
+      -
+        ParameterKey: NodeGroupName
+        ParameterValue: 'Default'
+      -
+        ParameterKey: NodeInstanceFamily
+        ParameterValue: 'Standard'
+      -
+        ParameterKey: NodeGroupOS
+        ParameterValue: 'Amazon Linux 2023'
+      -
+        # Advanced/rarely-needed knobs - genuinely optional, so left blank
+        # rather than given a made-up value.
+        ParameterKey: EKSClusterLoggingTypes
+        ParameterValue: 'Disabled'
+      -
+        ParameterKey: CustomNodeRole
+        ParameterValue: ''
+      -
+        ParameterKey: BastionRole
+        ParameterValue: ''
+      -
+        ParameterKey: NodeBootstrapExtraArgs
+        ParameterValue: ''
+      -
+        ParameterKey: EKSEncryptSecretsKmsKeyArn
+        ParameterValue: ''
+      -
+        ParameterKey: AdditionalEKSAdminUserArn
+        ParameterValue: ''
+      -
+        ParameterKey: AdditionalEKSAdminRoleArn
+        # Cloud assumes the connected account's management role for every
+        # subsequent namespace and Helm operation. Register that same role
+        # with EKS when the cluster is created so catalog containers can be
+        # installed without a manual access-entry repair.
+        ParameterValue: '${ConnectedProviderAccount.RoleArn}'
+      -
+        ParameterKey: CustomAmiId
+        ParameterValue: ''
+      -
+        ParameterKey: HttpProxy
+        ParameterValue: ''
+    features:
+      # Dashboard's own OIDC-login endpoint - jumping straight here from
+      # Cloud skips the SPA's login page and its manual "Sign in with SSO"
+      # button. If the browser still holds a valid Keycloak session this
+      # completes with no user interaction at all.
+      sso_login_path: /api/v1/oidc/login
+  version_status: draft

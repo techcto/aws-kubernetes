@@ -97,6 +97,27 @@ window. Check the
 [EKS Kubernetes release calendar](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html)
 before bumping the default or allowed values.
 
+## Cloud catalog versions
+
+The repository root contains `cloud.yaml` for Cloud's Kubernetes catalog item.
+Link `techcto/aws-kubernetes` to the item through its **Git** action. Cloud
+configures a signed repository webhook and imports the manifest from the exact
+commit referenced by each new semantic version tag (for example `v1.2.3`).
+Branch pushes, deleted tags, and forced tag updates do not create versions.
+Repeated deliveries leave an existing catalog version unchanged.
+
+`${Git.Version}` in the manifest resolves to the tag version without its `v`
+prefix. Other expressions, such as `${Picker.AWSVPCID}`, stay unchanged until
+installation. The starter creates draft versions; set `version_status: active`
+when new tagged releases should publish automatically.
+
+Publish the tagged release's artifacts before pushing its tag. The manifest
+uses `https://kubernetes-ui.s3.amazonaws.com/cloudformation/${Git.Version}/eks.yaml`;
+the existing `./cmd.sh cft` command publishes the development bundle to
+`solodev-kubernetes`, so it does not populate that release URL. Building and
+publishing artifacts remain separate from Cloud's webhook import. No pipeline
+call to `cloud catalog update` is needed for a webhook-linked item.
+
 ## Contributing
 
 Issues and pull requests welcome. Please open an issue before large

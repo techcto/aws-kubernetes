@@ -132,6 +132,8 @@ class LoadBalancerDeletionTest(unittest.TestCase):
     def test_dependency_graph_keeps_nodes_until_chart_and_fallback_cleanup(self):
         resources = self.template['Resources']
         self.assertIn('CleanupLoadBalancers', resources['WebStack']['DependsOn'])
+        self.assertEqual({'If': ['EnableIamOidcProvider', {'Ref': 'ClusterOIDCProvider'}, 'external']},
+                         resources['WebStack']['Properties']['Parameters']['OIDCProviderDependency'])
         self.assertEqual({'If': ['CreateNodeGroup', {'Ref': 'NodeGroup'}, 'disabled']},
                          resources['CleanupLoadBalancers']['Properties']['NodeGroupDependency'])
         self.assertEqual(900, resources['CleanupLoadBalancers']['Properties']['ServiceTimeout'])

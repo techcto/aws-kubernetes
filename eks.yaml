@@ -1123,6 +1123,9 @@ Resources:
         ProvisionLoadBalancerController: !Ref 'ProvisionLoadBalancerController'
         VPCID: !Ref VPCID
         OIDCIssuerURL: !GetAtt ControlPlane.OpenIdConnectIssuerUrl
+        # Keep controller IRSA authentication until every Helm release is removed.
+        # A conditional Ref also supports externally managed OIDC providers.
+        OIDCProviderDependency: !If [ EnableIamOidcProvider, !Ref ClusterOIDCProvider, external ]
         SettleWaitFunctionArn: !GetAtt SettleWaitFunction.Arn
 
   DashboardStack:

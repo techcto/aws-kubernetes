@@ -2,6 +2,10 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Deploys Solodev Webstack for Kubernetes
 
 Parameters:
+  OIDCProviderDependency:
+    Type: String
+    Default: external
+    Description: Internal ordering token preserving controller identity through chart deletion.
   ClusterName:
     Type: String
     Default: ""

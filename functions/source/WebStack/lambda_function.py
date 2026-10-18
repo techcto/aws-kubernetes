@@ -9,6 +9,7 @@ from hashlib import md5
 
 import boto3
 import botocore.signers
+from botocore.exceptions import ClientError
 import yaml
 from kubernetes import client as k8s_client
 from kubernetes import dynamic as k8s_dynamic
@@ -298,21 +299,30 @@ def helm_uninstall(props):
             '--wait', '--timeout', '480s']
     try:
         run_helm(args + helm_kube_args(props['ClusterName']))
-    except RuntimeError as e:
+    except (RuntimeError, ClientError) as e:
         error = str(e).lower()
         if 'release: not found' in error:
             logger.info("Release already gone, nothing to uninstall")
-        elif cluster_api_unreachable(error):
-            # CloudFormation must still be able to delete the stack when the
-            # EKS control plane (especially a private endpoint) has already
-            # become unreachable. There is nothing Helm can clean up once the
-            # API is gone, and all in-cluster resources disappear with EKS.
+        elif cluster_api_unreachable(error) and cluster_is_missing(props['ClusterName']):
+            # A missing cluster is an idempotent delete. A live cluster with a
+            # network or authentication failure must fail so CFN can retry;
+            # returning success would detach its external resources.
             logger.warning(
                 "Skipping Helm uninstall because the Kubernetes API is unreachable: %s",
                 e,
             )
         else:
             raise
+
+
+def cluster_is_missing(cluster_name):
+    try:
+        eks_client.describe_cluster(name=cluster_name)
+    except ClientError as error:
+        if error.response.get('Error', {}).get('Code') == 'ResourceNotFoundException':
+            return True
+        raise
+    return False
 
 
 def cluster_api_unreachable(error):
@@ -448,7 +458,7 @@ def delete_handler(event, context):
                 {'{{ .Values.ssl.email }}': event['ResourceProperties']['AdminEmail']},
             )
         except Exception as error:
-            if not cluster_api_unreachable(error):
+            if not (cluster_api_unreachable(error) and cluster_is_missing(event['ResourceProperties']['ClusterName'])):
                 raise
             logger.warning(
                 "Skipping manifest cleanup because the Kubernetes API is unreachable: %s",
@@ -460,5 +470,5 @@ def delete_handler(event, context):
 def lambda_handler(event, context):
     props = event.get("ResourceProperties", {})
     logger.setLevel(props.get("LogLevel", logging.INFO))
-    logger.debug(json.dumps(event))
+    logger.debug("Handling %s for %s", event.get("RequestType"), event.get("LogicalResourceId"))
     helper(event, context)

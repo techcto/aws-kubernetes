@@ -1,4 +1,4 @@
-# Kubernetes UI on AWS Marketplace
+# AWS Quick Start: Kubernetes-UI — Web Dashboard for Kubernetes Clusters
 
 Kubernetes UI is a fixed-monthly AWS Marketplace container product for Amazon
 EKS. Subscribe once, then choose the deployment that matches your environment.
@@ -6,8 +6,42 @@ The software charge is separate from the AWS infrastructure used by your EKS
 cluster.
 
 <p align="center">
-  <a href="https://aws.amazon.com/marketplace/pp?sku=3hyqc0li3ot9242x6e6t0rxoe"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/Subscribe_Large.jpg" width="200" alt="Subscribe to Kubernetes UI in AWS Marketplace" /></a>
+  <a href="https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/Subscribe_Large.jpg" width="200" alt="Subscribe to Kubernetes UI in AWS Marketplace" /></a>
 </p>
+
+## Start here
+
+1. Subscribe to **Kubernetes-UI: Web Dashboard for Kubernetes Clusters** in
+   [AWS Marketplace](https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla).
+2. Choose **View purchase options**, review pricing and terms, and accept the
+   subscription. Wait until it is active in the AWS account that will run the
+   cluster. CloudFormation does not subscribe to the product for you.
+3. Select an available product version. Use the version-specific CloudFormation
+   template linked in that version's usage instructions; a Git tag alone does
+   not mean the Marketplace version is ready.
+4. Choose **existing EKS cluster** below to install the dashboard, or **complete
+   EKS stack** to create a cluster and install it. The launch links below open
+   CloudFormation in `us-east-1`; select your supported target Region before
+   creating the stack.
+5. Review the template, parameters, IAM permissions, and infrastructure costs.
+   Create the stack and wait for `CREATE_COMPLETE`.
+6. Open the stack's **Outputs** tab and use `AdminUrl` where provided. For a
+   private installation without an ingress address, use the port-forward
+   procedure under **Verify the deployment**.
+
+This is a seller-provided CloudFormation Quick Start. AWS Marketplace's former
+built-in Helm Quick Launch experience was discontinued on March 1, 2026;
+[standard Helm and seller deployment instructions remain supported](https://docs.aws.amazon.com/marketplace/latest/userguide/container-based-products.html).
+
+## Why Kubernetes-UI continues
+
+The upstream [Kubernetes Dashboard](https://github.com/kubernetes-retired/dashboard)
+was archived because it lacked active maintainers and contributors. The
+SpaceMade and Solodev team is continuing the project as **Kubernetes-UI**, with
+plans for ongoing maintenance, security and dependency updates, and AWS
+integration. The project retains the original Apache 2.0 licensing and author
+attribution. Contributors are welcome in the
+[application repository](https://github.com/techcto/kubernetes-ui).
 
 ## Choose a deployment
 
@@ -15,7 +49,8 @@ cluster.
 |---|---|
 | Existing EKS Quick Start | You already have an EKS cluster and want CloudFormation to install only Kubernetes UI. |
 | Complete EKS Quick Start | You want CloudFormation to create an EKS cluster, managed nodes, and Kubernetes UI. |
-| `eksctl` and Helm | You want to inspect and run every installation command yourself. |
+| Container images | Choose the container-image delivery option, then use a CloudFormation Quick Start or supply your own EKS manifests and IRSA configuration. |
+| Helm chart for EKS | Choose the Helm delivery option and follow the `eksctl`/Helm commands below. |
 | EKS add-on | The limited Kubernetes UI add-on is available for your cluster version and account. |
 
 The existing-cluster Quick Start is the smallest CloudFormation test path. It
@@ -42,7 +77,7 @@ Select the AWS Region containing the EKS cluster, then launch the standalone
 template.
 
 <p align="center">
-  <a href="https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://kubernetes-ui.s3.amazonaws.com/cloudformation/kubernetes-ui.yaml&amp;stackName=kubernetes-ui"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/solodev-launch-btn.png" width="200" alt="Launch Kubernetes UI into an existing EKS cluster" /></a>
+  <a href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://kubernetes-ui.s3.amazonaws.com/cloudformation/kubernetes-ui.yaml&amp;stackName=kubernetes-ui"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/solodev-launch-btn.png" width="200" alt="Launch Kubernetes UI into an existing EKS cluster" /></a>
 </p>
 
 Use these commands to obtain the required values:
@@ -85,7 +120,7 @@ plane, managed node group, access entries, and Kubernetes UI in an existing
 VPC.
 
 <p align="center">
-  <a href="https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://kubernetes-ui.s3.amazonaws.com/cloudformation/eks.yaml&amp;stackName=kubernetes-ui-eks"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/solodev-launch-btn.png" width="200" alt="Launch a complete Kubernetes UI EKS environment" /></a>
+  <a href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://kubernetes-ui.s3.amazonaws.com/cloudformation/eks.yaml&amp;stackName=kubernetes-ui-eks"><img src="https://raw.githubusercontent.com/solodev/aws/master/pages/images/solodev-launch-btn.png" width="200" alt="Launch a complete Kubernetes UI EKS environment" /></a>
 </p>
 
 Provide a VPC and private subnets in at least two Availability Zones. Public
@@ -108,8 +143,8 @@ modify the cluster control plane or node groups. Install AWS CLI, `kubectl`,
 export AWS_REGION=us-east-1
 export CLUSTER_NAME=my-eks-cluster
 # Replace this with the version AWS Marketplace shows as available to the
-# subscribed buyer account. The repository's current release is shown here.
-export RELEASE_VERSION=1.1.2
+# subscribed buyer account; replace the placeholder before running Helm.
+export RELEASE_VERSION='<available-marketplace-version>'
 export MP_ECR=709825985650.dkr.ecr.us-east-1.amazonaws.com
 
 aws eks update-kubeconfig \
@@ -191,6 +226,18 @@ kubectl get pods -n kubernetes-dashboard -o wide
 ```
 
 ## Remove the evaluation
+
+Wait for stack deletion to finish before removing shared network connectivity
+or IAM access. The full EKS stack uninstalls its charts while the Kubernetes API
+and worker nodes remain available, then cleans up cluster-tagged load balancers
+and target groups before removing the nodes and control plane. If deletion
+fails, inspect **Events**, correct the reported cause, and retry deletion; do
+not retain stack resources simply to make the stack disappear.
+
+Persistent application data follows its storage retention/reclaim policy.
+Review and back up that data before deletion. The existing VPC and shared
+network resources are not owned by this Quick Start and are not deleted.
+
 
 For CloudFormation deployments, delete only the stack you launched. Deleting
 the existing-cluster Quick Start removes Kubernetes UI and its installer

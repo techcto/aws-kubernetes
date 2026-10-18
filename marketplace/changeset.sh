@@ -30,7 +30,56 @@ details="$(jq -n \
   --arg quickstart "$quickstart_url" \
   --arg existing "$existing_cluster_url" \
   --argjson images "$images_json" \
-  '{Version:{VersionTitle:$version,ReleaseNotes:("Kubernetes UI " + $version + " with private OIDC SSO, fixed-monthly AWS Marketplace entitlement enforcement, and version-locked existing/full EKS Quick Starts.")},DeliveryOptions:[{DeliveryOptionTitle:"Deploy Kubernetes UI on EKS",Details:{HelmDeliveryOptionDetails:{ContainerImages:$images,HelmChartUri:$chart,CompatibleServices:["EKS"],Description:"Deploy Kubernetes UI on an existing EKS cluster with Helm or CloudFormation, or launch the complete EKS stack.",UsageInstructions:("Subscribe first. Existing EKS Quick Start: " + $existing + ". Complete EKS stack: " + $quickstart + ". eksctl and Helm instructions: " + $usage),ReleaseName:"kubernetes-dashboard",MarketplaceServiceAccountName:"kubernetes-dashboard-auth",Namespace:"kubernetes-dashboard",OverrideParameters:[{Key:"auth.serviceAccount.create",DefaultValue:"false",Metadata:{Label:"Create auth service account",Description:"AWS Marketplace supplies the entitlement service account, so the chart must not create a duplicate.",Obfuscate:false}},{Key:"auth.serviceAccount.name",DefaultValue:"${AWSMP_SERVICE_ACCOUNT}",Metadata:{Label:"Marketplace service account",Description:"Use the AWS Marketplace service account authorized for fixed-monthly entitlement registration.",Obfuscate:false}}]}}}]}' )"
+  '{
+    Version: {
+      VersionTitle: $version,
+      ReleaseNotes: ("Kubernetes-UI " + $version + " with container image and EKS Helm delivery, OIDC SSO, and version-locked CloudFormation Quick Starts.")
+    },
+    DeliveryOptions: [
+      {
+        DeliveryOptionTitle: "Kubernetes-UI Container Images",
+        Details: {
+          EcrDeliveryOptionDetails: {
+            ContainerImages: $images,
+            CompatibleServices: ["EKS"],
+            DeploymentResources: [
+              {Name: "Existing EKS CloudFormation Quick Start", Url: $existing},
+              {Name: "Complete EKS CloudFormation Quick Start", Url: $quickstart}
+            ],
+            Description: "Deploy the Kubernetes-UI container images on Amazon EKS using the provided CloudFormation Quick Starts or your own Kubernetes configuration.",
+            UsageInstructions: ("First subscribe and accept the terms at https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla using the AWS account that will run the cluster. Wait until the subscription is active before launching CloudFormation or Helm. All four images are required. Configure the auth service account with IRSA and AWSMarketplaceMeteringRegisterUsage; retain Marketplace entitlement registration. Existing EKS Quick Start: " + $existing + ". Complete EKS Quick Start: " + $quickstart + ". Installation and access instructions: " + $usage)
+          }
+        }
+      },
+      {
+        DeliveryOptionTitle: "Kubernetes-UI Helm Chart for Amazon EKS",
+        Details: {
+          HelmDeliveryOptionDetails: {
+            ContainerImages: $images,
+            HelmChartUri: $chart,
+            CompatibleServices: ["EKS"],
+            Description: "Install Kubernetes-UI on Amazon EKS using the versioned Helm chart, with optional CloudFormation installation.",
+            UsageInstructions: ("First subscribe and accept the terms at https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla using the AWS account that will run the cluster. Wait until the subscription is active before launching CloudFormation or Helm. Existing EKS Quick Start: " + $existing + ". Complete EKS Quick Start: " + $quickstart + ". Helm installation and access instructions: " + $usage),
+            ReleaseName: "kubernetes-dashboard",
+            MarketplaceServiceAccountName: "kubernetes-dashboard-auth",
+            Namespace: "kubernetes-dashboard",
+            OverrideParameters: [
+              {
+                Key: "auth.serviceAccount.create",
+                DefaultValue: "false",
+                Metadata: {Label: "Create auth service account", Description: "AWS Marketplace supplies the entitlement service account, so the chart must not create a duplicate.", Obfuscate: false}
+              },
+              {
+                Key: "auth.serviceAccount.name",
+                DefaultValue: "${AWSMP_SERVICE_ACCOUNT}",
+                Metadata: {Label: "Marketplace service account", Description: "Use the AWS Marketplace service account authorized for fixed-monthly entitlement registration.", Obfuscate: false}
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }' )"
 
 aws marketplace-catalog start-change-set --catalog AWSMarketplace --change-set "$(jq -n \
   --arg id "$MP_PRODUCT_ID" --arg details "$details" \

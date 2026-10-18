@@ -1,16 +1,26 @@
-# aws-kubernetes
+# Kubernetes-UI: Web Dashboard for Kubernetes Clusters
 
-CloudFormation templates and Helm charts for deploying a Solodev-managed
-Amazon EKS cluster into an existing VPC, with an optional set of cluster
-add-ons (ingress, external DNS, TLS via cert-manager/Let's Encrypt, and the
-Kubernetes Dashboard).
+Kubernetes-UI is an open-source web dashboard for managing Kubernetes workloads
+and clusters. The SpaceMade and Solodev team maintains this continuation of
+Kubernetes Dashboard, including security and dependency updates, OIDC/SSO
+integration, release images, Helm packaging, and AWS deployment tooling.
 
-AWS Marketplace buyers and reviewers should start with the
-**[Kubernetes UI Quick Start](marketplace/QUICKSTART.md)**. It provides orange
-launch buttons and separate instructions for an existing EKS cluster, a new
-complete EKS environment, manual `eksctl`/Helm installation, and the optional
-EKS add-on. The manual buyer path has been verified with Kubernetes UI `1.0.4`
-on Amazon EKS 1.36.
+The original [Kubernetes Dashboard project](https://github.com/kubernetes-retired/dashboard)
+was archived after its maintainers reported a lack of active maintainers and
+contributors. We are continuing development as **Kubernetes-UI**, with the goal
+of keeping this dashboard useful and maintained. This is an independent
+continuation; the original Apache 2.0 license and attribution are preserved.
+Contributions and issue reports are welcome.
+
+**[Launch Kubernetes-UI on AWS — Quick Start](marketplace/QUICKSTART.md)**
+
+The guide covers installing into an existing Amazon EKS cluster or creating a
+new EKS environment with CloudFormation, plus manual Helm installation. AWS
+Marketplace software charges and AWS infrastructure charges are separate.
+
+This repository contains the AWS deployment templates and release tooling.
+The [Kubernetes-UI application source](https://github.com/techcto/kubernetes-ui)
+contains the dashboard itself.
 
 The control plane and node group are provisioned with native
 `AWS::EKS::Cluster` / `AWS::EKS::Nodegroup` resources, and the cluster's
@@ -54,7 +64,7 @@ per-region resources, both of which were retired in 2024–2025.
 |---|---|
 | `eks.yaml` | Root CloudFormation template: EKS control plane, node group, Load Balancer Controller, and the self-hosted helper Lambdas |
 | `kubernetes-ui.yaml` | Standalone Quick Start that installs only Kubernetes UI into an existing EKS cluster |
-| `webstack.yaml`, `webstack/` | Optional add-on stacks, installed via `AWSQS::Kubernetes::Helm` |
+| `webstack.yaml`, `webstack/` | Optional add-on stacks, installed via the repository-owned `Custom::Helm` Lambda |
 | `charts/` | Helm charts owned by this repo (`network`, `dashboard`, `lets-encrypt`) and their packaged `.tgz`/`index.yaml`, published as a private Helm repo |
 | `functions/source/WebStack` | Source for the custom web-stack Lambda (see its own README for the `kubectl`/`aws` build step); `functions/packages/` holds the built `lambda.zip` |
 | `submodules/amazon-eks-ami` | Fork used for custom node AMI builds (not consumed directly by the CFN templates) |
@@ -69,8 +79,6 @@ per-region resources, both of which were retired in 2024–2025.
 - [Helm](https://helm.sh/) 3+
 - Docker (to build the `kubectl`/`aws` binaries vendored into the
   WebStack Lambda — see `functions/source/WebStack/README.md`)
-- CloudFormation public extensions activated in the target region/account:
-  `AWSQS::Kubernetes::Helm` (used for all Helm-based installs in this repo)
 
 ## Building and deploying
 
@@ -117,6 +125,24 @@ the existing `./cmd.sh cft` command publishes the development bundle to
 `solodev-kubernetes`, so it does not populate that release URL. Building and
 publishing artifacts remain separate from Cloud's webhook import. No pipeline
 call to `cloud catalog update` is needed for a webhook-linked item.
+
+## Teardown verification
+
+The full cluster stack removes Helm workloads before its AWS fallback cleanup,
+then waits for cluster-owned load balancers to disappear before deleting their
+target groups and the cluster infrastructure. Network or permission errors on a
+live cluster fail the deletion so it can be retried; only a confirmed missing
+cluster or missing Helm release is treated as already deleted.
+
+Run the offline regression checks before releasing template or installer changes:
+
+```sh
+python3 -m pip install -r tests/requirements.txt
+python3 -m unittest discover -s tests -v
+```
+
+These tests cover ordering, ownership boundaries, retries and failure handling.
+A real create/delete cycle in AWS is still required to verify service behavior.
 
 ## Contributing
 

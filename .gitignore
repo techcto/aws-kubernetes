@@ -6,3 +6,6 @@ eks.json
 .env
 *zip
 .kcmd/
+# Local Python test and Lambda bytecode
+__pycache__/
+*.py[cod]

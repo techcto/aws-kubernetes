@@ -38,7 +38,7 @@ The direct artifact path is
 `cloudformation/direct/<version>/` in `KUBERNETES_RELEASE_BUCKET`.
 Marketplace artifacts retain `cloudformation/<version>/`. Both CloudFormation
 bundles default to Marketplace delivery. For an authorized direct installation,
-pass `DeliveryMode=Direct`, the seller's regular private ECR as `ImageRegistry`,
+pass the seller's regular private ECR as `ImageRegistry`,
 the repository namespace as `ImageRepositoryPrefix`, and the built semantic
 version as `ImageVersion`. These choices flow into the dashboard nested stack
 and all four images plus the chart. Direct mode omits the Marketplace metering

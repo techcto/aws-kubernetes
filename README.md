@@ -130,7 +130,7 @@ call to `cloud catalog update` is needed for a webhook-linked item.
 
 CloudFormation defaults to AWS Marketplace images and entitlement checks.
 For a direct installation using a shared private release registry, explicitly
-set `DeliveryMode=Direct`, `ImageRegistry`, `ImageRepositoryPrefix`, and
+set `ImageRegistry`, `ImageRepositoryPrefix`, and
 `ImageVersion`. The version must exist for all four images and the OCI Helm
 chart in that registry. Use the direct release's versioned CloudFormation URL
 from the publishing bucket; do not mix nested templates from different releases.

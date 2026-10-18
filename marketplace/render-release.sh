@@ -65,14 +65,13 @@ sed -i \
   -e "s|tag: latest|tag: $RELEASE_VERSION|g" \
   "$dashboard"
 
-# Both bundles default to Marketplace. Direct installation is an explicit
-# CloudFormation parameter choice; the direct chart itself has no metering flag.
+# Both bundles default to Marketplace. Direct installation uses an explicit
+# custom registry override; the direct chart itself has no metering flag.
 for template in "$output/cloudformation/eks.yaml" "$output/cloudformation/kubernetes-ui.yaml" "$dashboard"; do
   sed -i \
     -e "/^  ImageVersion:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$RELEASE_VERSION'|" \
-    -e "/^  ImageRegistry:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$marketplace_registry'|" \
+    -e "s|709825985650.dkr.ecr.us-east-1.amazonaws.com|$marketplace_registry|g" \
     -e "/^  ImageRepositoryPrefix:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$marketplace_prefix'|" \
-    -e "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$MP_PRODUCT_CODE'|" \
     "$template"
 done
 

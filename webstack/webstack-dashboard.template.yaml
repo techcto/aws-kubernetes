@@ -25,7 +25,6 @@ Metadata:
           - CloudScope
           - SessionSigningKey
           - OIDCIssuerURL
-          - MarketplaceProductCode
 
 Parameters:
 
@@ -79,15 +78,10 @@ Parameters:
     Type: String
     Description: "EKS cluster OIDC issuer used by the auth service's Marketplace metering IRSA role"
 
-  DeliveryMode:
-    Type: String
-    Default: Marketplace
-    AllowedValues: [Marketplace, Direct]
-    Description: Marketplace requires an active subscription. Direct uses your private image registry.
   ImageRegistry:
     Type: String
-    Default: '709825985650.dkr.ecr.us-east-1.amazonaws.com'
-    Description: Registry containing all four images and the OCI Helm chart.
+    Default: ''
+    Description: Optional custom registry containing all four images and the OCI Helm chart. Leave blank for AWS Marketplace.
   ImageRepositoryPrefix:
     Type: String
     Default: solodev
@@ -97,13 +91,8 @@ Parameters:
     Default: '1.1.5'
     AllowedPattern: '[0-9]+\.[0-9]+\.[0-9]+'
     Description: Matching image tags and Helm chart version in the selected registry.
-  MarketplaceProductCode:
-    Type: String
-    Default: '3hyqc0li3ot9242x6e6t0rxoe'
-    Description: AWS Marketplace entitlement product code; applied only in Marketplace mode.
-
 Conditions:
-  UseMarketplace: !Equals [!Ref DeliveryMode, Marketplace]
+  UseMarketplace: !Equals [!Ref ImageRegistry, '']
 
   HasSso: !Not [!Equals [!Ref CloudClientId, ""]]
   HasClusterZone: !Not [!Equals [!Ref ClusterZone, ""]]
@@ -144,7 +133,9 @@ Resources:
       ServiceToken: !Ref WebStackArn
       ClusterName: !Ref ClusterName
       Namespace: !Ref Namespace
-      Repository: !Sub "oci://${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-dashboard"
+      Repository: !Sub
+        - "oci://${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-dashboard"
+        - ResolvedImageRegistry: !If [UseMarketplace, "709825985650.dkr.ecr.us-east-1.amazonaws.com", !Ref ImageRegistry]
       Chart: kubernetes-dashboard
       Name: kubernetes-dashboard
       Version: !Ref ImageVersion
@@ -172,7 +163,7 @@ Resources:
               serviceAccount:
                 annotations: ${MeteringAnnotations}
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-auth
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-auth
                 tag: ${ImageVersion}
               containers:
                 args:
@@ -186,7 +177,7 @@ Resources:
                   - --marketplace-product-code=${EntitlementProductCode}
             api:
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-api
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-api
                 tag: ${ImageVersion}
               containers:
                 args:
@@ -194,15 +185,16 @@ Resources:
                   - --session-signing-key=${SessionSigningKey}
             web:
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-web
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-web
                 tag: ${ImageVersion}
             metricsScraper:
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-metrics-scraper
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-metrics-scraper
                 tag: ${ImageVersion}
           - IngressEnabled: !If [HasClusterZone, "true", "false"]
+            ResolvedImageRegistry: !If [UseMarketplace, "709825985650.dkr.ecr.us-east-1.amazonaws.com", !Ref ImageRegistry]
             MeteringAnnotations: !If [UseMarketplace, !Sub '{"eks.amazonaws.com/role-arn":"${MarketplaceMeteringRole.Arn}"}', '{}']
-            EntitlementProductCode: !If [UseMarketplace, !Ref MarketplaceProductCode, '']
+            EntitlementProductCode: !If [UseMarketplace, '3hyqc0li3ot9242x6e6t0rxoe', '']
         - !Sub
           - |
             app:
@@ -225,7 +217,7 @@ Resources:
               serviceAccount:
                 annotations: ${MeteringAnnotations}
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-auth
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-auth
                 tag: ${ImageVersion}
               containers:
                 args:
@@ -233,22 +225,23 @@ Resources:
                   - --marketplace-product-code=${EntitlementProductCode}
             api:
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-api
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-api
                 tag: ${ImageVersion}
               containers:
                 args:
                   - --v=1
             web:
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-web
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-web
                 tag: ${ImageVersion}
             metricsScraper:
               image:
-                repository: ${ImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-metrics-scraper
+                repository: ${ResolvedImageRegistry}/${ImageRepositoryPrefix}/kubernetes-ui-metrics-scraper
                 tag: ${ImageVersion}
           - IngressEnabled: !If [HasClusterZone, "true", "false"]
+            ResolvedImageRegistry: !If [UseMarketplace, "709825985650.dkr.ecr.us-east-1.amazonaws.com", !Ref ImageRegistry]
             MeteringAnnotations: !If [UseMarketplace, !Sub '{"eks.amazonaws.com/role-arn":"${MarketplaceMeteringRole.Arn}"}', '{}']
-            EntitlementProductCode: !If [UseMarketplace, !Ref MarketplaceProductCode, '']
+            EntitlementProductCode: !If [UseMarketplace, '3hyqc0li3ot9242x6e6t0rxoe', '']
 
 Outputs:
 

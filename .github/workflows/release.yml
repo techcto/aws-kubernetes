@@ -72,16 +72,6 @@ jobs:
         run: |
           account=$(aws sts get-caller-identity --query Account --output text)
           echo "value=$account.dkr.ecr.$AWS_REGION.amazonaws.com" >> "$GITHUB_OUTPUT"
-      - name: Provision release repositories and pull-only sharing through CloudFormation
-        run: |
-          aws cloudformation deploy --region "$AWS_REGION" \
-            --stack-name kubernetes-ui-release-repositories \
-            --template-file devops/cloudformation/release-repositories.yaml \
-            --parameter-overrides "DirectPullAccountId=$DIRECT_PULL_ACCOUNT_ID" \
-              "AuthRepositoryName=$MP_AUTH_REPOSITORY" "ApiRepositoryName=$MP_API_REPOSITORY" \
-              "WebRepositoryName=$MP_WEB_REPOSITORY" "MetricsRepositoryName=$MP_METRICS_REPOSITORY" \
-              "ChartRepositoryName=$MP_CHART_REPOSITORY" \
-            --no-fail-on-empty-changeset
 
   build:
     needs: [prepare, validate]

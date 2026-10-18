@@ -137,5 +137,16 @@ class LoadBalancerDeletionTest(unittest.TestCase):
         self.assertEqual(900, resources['CleanupLoadBalancers']['Properties']['ServiceTimeout'])
 
 
+class ClusterAccessTest(unittest.TestCase):
+    def test_helm_installer_access_uses_stack_managed_role(self):
+        resources = yaml.load((ROOT / 'eks.yaml').read_text(), Loader=TemplateLoader)['Resources']
+        installer_role = resources['WebStackLambda']['Properties']['Role']
+        granted_roles = [resource['Properties']['PrincipalArn'] for resource in resources.values()
+                         if resource['Type'] == 'AWS::EKS::AccessEntry']
+        self.assertIn(installer_role, granted_roles)
+        self.assertNotIn('HelmAccessEntry', resources)
+        self.assertNotIn('awsqs-kubernetes-helm', (ROOT / 'eks.yaml').read_text())
+
+
 if __name__ == '__main__':
     unittest.main()

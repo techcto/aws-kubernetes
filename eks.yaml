@@ -620,14 +620,6 @@ Resources:
       AccessPolicies:
         - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
           AccessScope: { Type: cluster }
-  HelmAccessEntry:
-    Type: AWS::EKS::AccessEntry
-    Properties:
-      ClusterName: !Ref ControlPlane
-      PrincipalArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/awsqs-kubernetes-helm"
-      AccessPolicies:
-        - PolicyArn: !Sub arn:${AWS::Partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
-          AccessScope: { Type: cluster }
   RootAccessEntry:
     Type: AWS::EKS::AccessEntry
     Properties:

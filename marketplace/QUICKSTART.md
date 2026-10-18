@@ -33,6 +33,45 @@ This is a seller-provided CloudFormation Quick Start. AWS Marketplace's former
 built-in Helm Quick Launch experience was discontinued on March 1, 2026;
 [standard Helm and seller deployment instructions remain supported](https://docs.aws.amazon.com/marketplace/latest/userguide/container-based-products.html).
 
+## AWS reviewer test path
+
+Use `us-east-1` and an existing EKS cluster for the smallest evaluation. The
+container-image and Helm delivery options use the same four application images
+and version. Test each option with the version submitted for review.
+
+### Container image delivery
+
+1. Subscribe and accept the product terms in the account that owns the test
+   cluster. Select the **Container image** delivery option.
+2. Open the version-specific **Existing EKS CloudFormation Quick Start** URL in
+   that delivery option's usage instructions. Supply the cluster values listed
+   under [Option 1](#option-1-add-kubernetes-ui-to-an-existing-eks-cluster).
+3. Wait for `CREATE_COMPLETE`, then follow
+   [Verify the deployment](#verify-the-deployment). Confirm all dashboard pods
+   are ready and the UI opens through the documented port-forward. If testing
+   SSO, supply your OIDC client settings and verify the configured login flow.
+4. Delete the evaluation stack and wait for `DELETE_COMPLETE`. Confirm its Helm
+   release and application pods are removed; the pre-existing EKS cluster must
+   remain available.
+
+### Helm chart delivery
+
+1. Subscribe and accept the product terms in the account that owns the test
+   cluster. Select the **Helm chart** delivery option.
+2. Follow [Option 3](#option-3-test-the-ui-chart-on-any-existing-amazon-eks-cluster),
+   setting `RELEASE_VERSION` to the version submitted for review. This creates
+   the entitlement service account and installs the versioned OCI chart.
+3. Follow [Verify the deployment](#verify-the-deployment). Confirm the four
+   application components are running, entitlement registration succeeds, and
+   the UI opens. Configure your OIDC client settings when testing SSO.
+4. Follow [Remove the evaluation](#remove-the-evaluation) for the manual Helm
+   path. Confirm the release is gone while the pre-existing EKS cluster remains
+   available.
+
+For either option, keep the Marketplace entitlement checks enabled. A failed
+image pull or `CustomerNotEntitledException` requires checking the subscription,
+AWS account, selected version, and service-account permissions before retrying.
+
 ## Why Kubernetes-UI continues
 
 The upstream [Kubernetes Dashboard](https://github.com/kubernetes-retired/dashboard)

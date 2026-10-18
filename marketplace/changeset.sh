@@ -47,7 +47,7 @@ details="$(jq -n \
               {Name: "Complete EKS CloudFormation Quick Start", Url: $quickstart}
             ],
             Description: "Deploy the Kubernetes-UI container images on Amazon EKS using the provided CloudFormation Quick Starts or your own Kubernetes configuration.",
-            UsageInstructions: ("First subscribe and accept the terms at https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla using the AWS account that will run the cluster. Wait until the subscription is active before launching CloudFormation or Helm. All four images are required. Configure the auth service account with IRSA and AWSMarketplaceMeteringRegisterUsage; retain Marketplace entitlement registration. Existing EKS Quick Start: " + $existing + ". Complete EKS Quick Start: " + $quickstart + ". Installation and access instructions: " + $usage)
+            UsageInstructions: ("Quick Start and AWS reviewer test steps: " + $usage + "#container-image-delivery. First subscribe and accept the terms at https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla using the AWS account that will run the cluster. Wait until the subscription is active before launching CloudFormation or Helm. All four images are required. Configure the auth service account with IRSA and AWSMarketplaceMeteringRegisterUsage; retain Marketplace entitlement registration. Existing EKS Quick Start: " + $existing + ". Complete EKS Quick Start: " + $quickstart + ". Installation and access instructions: " + $usage)
           }
         }
       },
@@ -59,7 +59,7 @@ details="$(jq -n \
             HelmChartUri: $chart,
             CompatibleServices: ["EKS"],
             Description: "Install Kubernetes-UI on Amazon EKS using the versioned Helm chart, with optional CloudFormation installation.",
-            UsageInstructions: ("First subscribe and accept the terms at https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla using the AWS account that will run the cluster. Wait until the subscription is active before launching CloudFormation or Helm. Existing EKS Quick Start: " + $existing + ". Complete EKS Quick Start: " + $quickstart + ". Helm installation and access instructions: " + $usage),
+            UsageInstructions: ("Quick Start and AWS reviewer test steps: " + $usage + "#helm-chart-delivery. First subscribe and accept the terms at https://aws.amazon.com/marketplace/pp/prodview-7uaseskhg4mla using the AWS account that will run the cluster. Wait until the subscription is active before launching CloudFormation or Helm. Existing EKS Quick Start: " + $existing + ". Complete EKS Quick Start: " + $quickstart + ". Helm installation and access instructions: " + $usage),
             ReleaseName: "kubernetes-dashboard",
             MarketplaceServiceAccountName: "kubernetes-dashboard-auth",
             Namespace: "kubernetes-dashboard",

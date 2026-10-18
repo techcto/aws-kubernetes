@@ -16,6 +16,34 @@ The Quick Start creates the least-privilege IRSA role used for this call.
 Customer and AWS-reviewer deployment instructions are maintained in the
 [Kubernetes UI Quick Start](QUICKSTART.md).
 
+## Direct and Marketplace release paths
+
+Each release first builds the four multi-platform images in the seller AWS
+account's regular private ECR. The registry is resolved from the configured
+publishing credentials. A CloudFormation stack owns these repositories and
+optionally grants another AWS account pull-only access to the images and chart.
+The direct chart and versioned deployment templates are published before
+Marketplace submission. The same image digests are then promoted to the
+Marketplace-managed registry; the application images are not rebuilt.
+
+Set the repository variable `DIRECT_PULL_ACCOUNT_ID` to the 12-digit AWS account
+that should evaluate direct releases. No additional AWS credentials or GitHub
+OIDC role are required. That account's EKS node and installer roles also need
+normal ECR read/authentication permissions. The publisher needs CloudFormation
+and ECR repository/policy permissions in its own account, in addition to its
+existing ECR, S3, and Marketplace permissions. Existing unrelated repositories
+are not changed.
+
+The direct artifact path is
+`cloudformation/direct/<version>/` in `KUBERNETES_RELEASE_BUCKET`.
+Marketplace artifacts retain `cloudformation/<version>/`. Both CloudFormation
+bundles default to Marketplace delivery. For an authorized direct installation,
+pass `DeliveryMode=Direct`, the seller's regular private ECR as `ImageRegistry`,
+the repository namespace as `ImageRepositoryPrefix`, and the built semantic
+version as `ImageVersion`. These choices flow into the dashboard nested stack
+and all four images plus the chart. Direct mode omits the Marketplace metering
+role and product-code flag; Marketplace mode retains entitlement registration.
+
 ## GitHub repository variables
 
 Required:

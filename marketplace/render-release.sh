@@ -11,6 +11,12 @@ set -euo pipefail
 : "${MP_PRODUCT_CODE:?Set MP_PRODUCT_CODE}"
 : "${KUBERNETES_RELEASE_BUCKET:?Set KUBERNETES_RELEASE_BUCKET}"
 
+delivery="${RELEASE_DELIVERY:-marketplace}"
+case "$delivery" in marketplace|direct) ;; *) echo "RELEASE_DELIVERY must be marketplace or direct" >&2; exit 1 ;; esac
+marketplace_registry="${MARKETPLACE_DEFAULT_REGISTRY:-$MP_AWS_ECR}"
+marketplace_prefix="${MARKETPLACE_DEFAULT_PREFIX:-solodev}"
+artifact_prefix="${RELEASE_ARTIFACT_PREFIX:-cloudformation}"
+[[ "$artifact_prefix" =~ ^cloudformation(/[A-Za-z0-9_-]+)*$ ]] || { echo "Invalid release artifact prefix" >&2; exit 1; }
 output="${1:-release-artifacts}"
 helm_bin="${HELM_BIN:-helm}"
 case "$output" in
@@ -31,7 +37,6 @@ sed -i \
   -e "0,/^version: /s//version: $RELEASE_VERSION/" \
   -e "/^auth:/,/^api:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_AUTH_REPOSITORY|" \
   -e "/^auth:/,/^api:/ s|tag: .*|tag: $RELEASE_VERSION|" \
-  -e "/^auth:/,/^api:/ s|^    args: \[\]|    args:\n      - --marketplace-product-code=$MP_PRODUCT_CODE|" \
   -e "/^api:/,/^web:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_API_REPOSITORY|" \
   -e "/^api:/,/^web:/ s|tag: .*|tag: $RELEASE_VERSION|" \
   -e "/^web:/,/^metricsScraper:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_WEB_REPOSITORY|" \
@@ -39,6 +44,10 @@ sed -i \
   -e "/^metricsScraper:/,/^metrics-server:/ s|repository: .*|repository: $MP_AWS_ECR/$MP_METRICS_REPOSITORY|" \
   -e "/^metricsScraper:/,/^metrics-server:/ s|tag: .*|tag: $RELEASE_VERSION|" \
   "$output/chart/values.yaml"
+
+if [ "$delivery" = marketplace ]; then
+  sed -i "/^auth:/,/^api:/ s|^    args: \[\]|    args:\\n      - --marketplace-product-code=$MP_PRODUCT_CODE|" "$output/chart/values.yaml"
+fi
 
 "$helm_bin" package "$output/chart" --destination "$output" --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION"
 
@@ -56,9 +65,16 @@ sed -i \
   -e "s|tag: latest|tag: $RELEASE_VERSION|g" \
   "$dashboard"
 
-sed -i \
-  "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: \"\"|    Default: \"$MP_PRODUCT_CODE\"|" \
-  "$dashboard"
+# Both bundles default to Marketplace. Direct installation is an explicit
+# CloudFormation parameter choice; the direct chart itself has no metering flag.
+for template in "$output/cloudformation/eks.yaml" "$output/cloudformation/kubernetes-ui.yaml" "$dashboard"; do
+  sed -i \
+    -e "/^  ImageVersion:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$RELEASE_VERSION'|" \
+    -e "/^  ImageRegistry:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$marketplace_registry'|" \
+    -e "/^  ImageRepositoryPrefix:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$marketplace_prefix'|" \
+    -e "/^  MarketplaceProductCode:/,/^  [A-Za-z]/ s|^    Default: .*|    Default: '$MP_PRODUCT_CODE'|" \
+    "$template"
+done
 
 # Keep the root template, nested stacks, and Lambda package in the selected
 # release bucket. Marketplace sellers often use a bucket separate from their
@@ -71,6 +87,6 @@ find "$output/cloudformation" -type f -name '*.yaml' -exec \
 # under the version-specific prefix that was rendered with it.
 find "$output/cloudformation" -type f -name '*.yaml' -exec \
   sed -i \
-    -e "s|https://s3.amazonaws.com/$KUBERNETES_RELEASE_BUCKET/cloudformation/|https://s3.amazonaws.com/$KUBERNETES_RELEASE_BUCKET/cloudformation/$RELEASE_VERSION/|g" \
-    -e "s|Default: cloudformation/|Default: cloudformation/$RELEASE_VERSION/|g" \
+    -e "s|https://s3.amazonaws.com/$KUBERNETES_RELEASE_BUCKET/cloudformation/|https://s3.amazonaws.com/$KUBERNETES_RELEASE_BUCKET/$artifact_prefix/$RELEASE_VERSION/|g" \
+    -e "s|Default: cloudformation/|Default: $artifact_prefix/$RELEASE_VERSION/|g" \
     {} +

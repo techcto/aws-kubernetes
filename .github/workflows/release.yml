@@ -1,4 +1,4 @@
-name: Release Kubernetes UI to AWS Marketplace
+name: Release Kubernetes UI
 
 on:
   push:
@@ -9,10 +9,15 @@ on:
         description: Release version without the leading v
         required: true
 
+concurrency:
+  group: kubernetes-ui-release
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 env:
+  DIRECT_PULL_ACCOUNT_ID: ${{ vars.DIRECT_PULL_ACCOUNT_ID }}
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   MP_AWS_ECR: ${{ vars.MP_AWS_ECR || '709825985650.dkr.ecr.us-east-1.amazonaws.com' }}
   MP_AUTH_REPOSITORY: ${{ vars.MP_AUTH_REPOSITORY || 'solodev/kubernetes-ui-auth' }}
@@ -42,7 +47,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.value }}
+      registry: ${{ steps.registry.outputs.value }}
     steps:
+      - uses: actions/checkout@v4
       - id: version
         name: Resolve version
         env:
@@ -55,8 +62,31 @@ jobs:
           }
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
+      - id: registry
+        name: Resolve seller private ECR
+        run: |
+          account=$(aws sts get-caller-identity --query Account --output text)
+          echo "value=$account.dkr.ecr.$AWS_REGION.amazonaws.com" >> "$GITHUB_OUTPUT"
+      - name: Provision release repositories and pull-only sharing through CloudFormation
+        run: |
+          aws cloudformation deploy --region "$AWS_REGION" \
+            --stack-name kubernetes-ui-release-repositories \
+            --template-file devops/cloudformation/release-repositories.yaml \
+            --parameter-overrides "DirectPullAccountId=$DIRECT_PULL_ACCOUNT_ID" \
+              "AuthRepositoryName=$MP_AUTH_REPOSITORY" "ApiRepositoryName=$MP_API_REPOSITORY" \
+              "WebRepositoryName=$MP_WEB_REPOSITORY" "MetricsRepositoryName=$MP_METRICS_REPOSITORY" \
+              "ChartRepositoryName=$MP_CHART_REPOSITORY" \
+            --no-fail-on-empty-changeset
+
   build:
     needs: [prepare, validate]
+    env:
+      DIRECT_ECR: ${{ needs.prepare.outputs.registry }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -91,8 +121,8 @@ jobs:
           aws-access-key-id: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
 
-      - name: Login to Marketplace ECR
-        run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$MP_AWS_ECR"
+      - name: Login to seller private ECR
+        run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$DIRECT_ECR"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -107,10 +137,52 @@ jobs:
           sbom: false
           build-args: |
             VERSION=${{ needs.prepare.outputs.version }}
-          tags: ${{ env.MP_AWS_ECR }}/${{ matrix.repository }}:${{ needs.prepare.outputs.version }}
+          tags: ${{ env.DIRECT_ECR }}/${{ matrix.repository }}:${{ needs.prepare.outputs.version }}
+
+  direct-release:
+    needs: [prepare, build]
+    env:
+      DIRECT_ECR: ${{ needs.prepare.outputs.registry }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      - name: Build Quick Start Lambda package
+        run: bash cmd.sh lambda
+      - name: Publish direct chart and deployment artifacts
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          RELEASE_DELIVERY=direct RELEASE_ARTIFACT_PREFIX=cloudformation/direct \
+          MARKETPLACE_DEFAULT_REGISTRY="$MP_AWS_ECR" \
+          MP_AWS_ECR="$DIRECT_ECR" \
+          marketplace/render-release.sh direct-artifacts
+          aws ecr get-login-password --region "$AWS_REGION" | helm registry login --username AWS --password-stdin "$DIRECT_ECR"
+          chart_parent="${MP_CHART_REPOSITORY%/*}"
+          helm push "direct-artifacts/kubernetes-dashboard-$RELEASE_VERSION.tgz" "oci://$DIRECT_ECR/$chart_parent"
+          aws s3 cp direct-artifacts/cloudformation "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation/direct/$RELEASE_VERSION" \
+            --recursive --exclude 'functions/*' --content-type text/yaml --region "$AWS_REGION" --no-progress
+          aws s3 cp direct-artifacts/cloudformation/functions "s3://$KUBERNETES_RELEASE_BUCKET/cloudformation/direct/$RELEASE_VERSION/functions" \
+            --recursive --content-type application/zip --region "$AWS_REGION" --no-progress
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quickstart-lambda
+          path: functions/packages/WebStack/lambda.zip
+          retention-days: 7
 
   release:
-    needs: [prepare, build]
+    needs: [prepare, direct-release]
+    env:
+      DIRECT_ECR: ${{ needs.prepare.outputs.registry }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,13 +194,41 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           aws-access-key-id: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
+      - name: Resolve immutable seller image digests
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$DIRECT_ECR"
+          for repository in "$MP_AUTH_REPOSITORY" "$MP_API_REPOSITORY" "$MP_WEB_REPOSITORY" "$MP_METRICS_REPOSITORY"; do
+            digest=$(aws ecr describe-images --repository-name "$repository" --image-ids "imageTag=$RELEASE_VERSION" --query 'imageDetails[0].imageDigest' --output text)
+            printf '%s %s\n' "$repository" "$digest" >> source-digests.txt
+          done
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ vars.MP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.MP_AWS_SECRET_ACCESS_KEY }}
 
       - uses: azure/setup-helm@v4
         with:
           version: v3.19.0
 
-      - name: Build Quick Start Lambda package
-        run: bash cmd.sh lambda
+      - uses: actions/download-artifact@v4
+        with:
+          name: quickstart-lambda
+          path: functions/packages/WebStack
+      - uses: docker/setup-buildx-action@v3
+      - name: Promote the same images into Marketplace ECR
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$MP_AWS_ECR"
+          while read -r repository digest; do
+            source="$DIRECT_ECR/$repository@$digest"
+            docker buildx imagetools create --tag "$MP_AWS_ECR/$repository:$RELEASE_VERSION" "$source"
+            promoted=$(aws ecr describe-images --registry-id "${MP_AWS_ECR%%.*}" --repository-name "$repository" --image-ids "imageTag=$RELEASE_VERSION" --query 'imageDetails[0].imageDigest' --output text)
+            test "$promoted" = "$digest"
+          done < source-digests.txt
 
       - name: Render and publish Marketplace artifacts
         env:

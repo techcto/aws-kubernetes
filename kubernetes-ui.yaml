@@ -12,6 +12,28 @@ Metadata:
         Parameters: [LambdaBucketName, KeyPrefix]
 
 Parameters:
+  DeliveryMode:
+    Type: String
+    Default: Marketplace
+    AllowedValues: [Marketplace, Direct]
+    Description: Marketplace requires an active subscription. Direct uses your private image registry.
+  ImageRegistry:
+    Type: String
+    Default: '709825985650.dkr.ecr.us-east-1.amazonaws.com'
+    Description: Registry containing all four images and the OCI Helm chart.
+  ImageRepositoryPrefix:
+    Type: String
+    Default: solodev
+    AllowedPattern: '[a-z0-9]+(?:[._/-][a-z0-9]+)*'
+  ImageVersion:
+    Type: String
+    Default: '1.1.5'
+    AllowedPattern: '[0-9]+\.[0-9]+\.[0-9]+'
+    Description: Matching image tags and Helm chart version in the selected registry.
+  MarketplaceProductCode:
+    Type: String
+    Default: '3hyqc0li3ot9242x6e6t0rxoe'
+    Description: AWS Marketplace entitlement product code; applied only in Marketplace mode.
   ClusterName:
     Type: String
     Description: Name of the existing Amazon EKS cluster.
@@ -133,6 +155,11 @@ Resources:
     Properties:
       TemplateURL: https://s3.amazonaws.com/solodev-kubernetes/cloudformation/webstack/webstack-dashboard.template.yaml
       Parameters:
+        DeliveryMode: !Ref DeliveryMode
+        ImageRegistry: !Ref ImageRegistry
+        ImageRepositoryPrefix: !Ref ImageRepositoryPrefix
+        ImageVersion: !Ref ImageVersion
+        MarketplaceProductCode: !Ref MarketplaceProductCode
         ClusterName: !Ref ClusterName
         ClusterZone: !Ref ClusterZone
         WebStackArn: !GetAtt InstallerFunction.Arn

@@ -126,6 +126,16 @@ the existing `./cmd.sh cft` command publishes the development bundle to
 publishing artifacts remain separate from Cloud's webhook import. No pipeline
 call to `cloud catalog update` is needed for a webhook-linked item.
 
+## Direct installation overrides
+
+CloudFormation defaults to AWS Marketplace images and entitlement checks.
+For a direct installation using a shared private release registry, explicitly
+set `DeliveryMode=Direct`, `ImageRegistry`, `ImageRepositoryPrefix`, and
+`ImageVersion`. The version must exist for all four images and the OCI Helm
+chart in that registry. Use the direct release's versioned CloudFormation URL
+from the publishing bucket; do not mix nested templates from different releases.
+See [release configuration](marketplace/README.md#direct-and-marketplace-release-paths).
+
 ## Teardown verification
 
 The full cluster stack removes Helm workloads before its AWS fallback cleanup,

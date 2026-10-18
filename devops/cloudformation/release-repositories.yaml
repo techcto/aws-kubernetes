@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private Kubernetes-UI release repositories in the seller account, with
+  optional pull-only sharing.
+Parameters:
+  DirectPullAccountId:
+    Type: String
+    Default: ''
+    AllowedPattern: ^$|^[0-9]{12}$
+    Description: AWS account allowed to pull direct-release images and chart; empty
+      disables sharing.
+  AuthRepositoryName:
+    Type: String
+    Default: solodev/kubernetes-ui-auth
+    AllowedPattern: '[a-z0-9]+(?:[._/-][a-z0-9]+)*'
+  ApiRepositoryName:
+    Type: String
+    Default: solodev/kubernetes-ui-api
+    AllowedPattern: '[a-z0-9]+(?:[._/-][a-z0-9]+)*'
+  WebRepositoryName:
+    Type: String
+    Default: solodev/kubernetes-ui-web
+    AllowedPattern: '[a-z0-9]+(?:[._/-][a-z0-9]+)*'
+  MetricsRepositoryName:
+    Type: String
+    Default: solodev/kubernetes-ui-metrics-scraper
+    AllowedPattern: '[a-z0-9]+(?:[._/-][a-z0-9]+)*'
+  ChartRepositoryName:
+    Type: String
+    Default: solodev/kubernetes-dashboard
+    AllowedPattern: '[a-z0-9]+(?:[._/-][a-z0-9]+)*'
+Conditions:
+  ShareDirectImages:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: DirectPullAccountId
+      - ''
+Resources:
+  AuthRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName:
+        Ref: AuthRepositoryName
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Fn::If:
+        - ShareDirectImages
+        - Version: '2012-10-17'
+          Statement:
+          - Sid: DirectCrossAccountPull
+            Effect: Allow
+            Principal:
+              AWS:
+                Fn::Sub: arn:${AWS::Partition}:iam::${DirectPullAccountId}:root
+            Action:
+            - ecr:BatchGetImage
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchCheckLayerAvailability
+        - Ref: AWS::NoValue
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName:
+        Ref: ApiRepositoryName
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Fn::If:
+        - ShareDirectImages
+        - Version: '2012-10-17'
+          Statement:
+          - Sid: DirectCrossAccountPull
+            Effect: Allow
+            Principal:
+              AWS:
+                Fn::Sub: arn:${AWS::Partition}:iam::${DirectPullAccountId}:root
+            Action:
+            - ecr:BatchGetImage
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchCheckLayerAvailability
+        - Ref: AWS::NoValue
+  WebRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName:
+        Ref: WebRepositoryName
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Fn::If:
+        - ShareDirectImages
+        - Version: '2012-10-17'
+          Statement:
+          - Sid: DirectCrossAccountPull
+            Effect: Allow
+            Principal:
+              AWS:
+                Fn::Sub: arn:${AWS::Partition}:iam::${DirectPullAccountId}:root
+            Action:
+            - ecr:BatchGetImage
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchCheckLayerAvailability
+        - Ref: AWS::NoValue
+  MetricsRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName:
+        Ref: MetricsRepositoryName
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Fn::If:
+        - ShareDirectImages
+        - Version: '2012-10-17'
+          Statement:
+          - Sid: DirectCrossAccountPull
+            Effect: Allow
+            Principal:
+              AWS:
+                Fn::Sub: arn:${AWS::Partition}:iam::${DirectPullAccountId}:root
+            Action:
+            - ecr:BatchGetImage
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchCheckLayerAvailability
+        - Ref: AWS::NoValue
+  ChartRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName:
+        Ref: ChartRepositoryName
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Fn::If:
+        - ShareDirectImages
+        - Version: '2012-10-17'
+          Statement:
+          - Sid: DirectCrossAccountPull
+            Effect: Allow
+            Principal:
+              AWS:
+                Fn::Sub: arn:${AWS::Partition}:iam::${DirectPullAccountId}:root
+            Action:
+            - ecr:BatchGetImage
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchCheckLayerAvailability
+        - Ref: AWS::NoValue

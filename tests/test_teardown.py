@@ -150,5 +150,18 @@ class ClusterAccessTest(unittest.TestCase):
         self.assertNotIn('awsqs-kubernetes-helm', (ROOT / 'eks.yaml').read_text())
 
 
+class CloudApiNetworkAccessTest(unittest.TestCase):
+    def test_api_access_is_opt_in_and_limited_to_existing_client_security_group(self):
+        template = yaml.load((ROOT / 'eks.yaml').read_text(), Loader=TemplateLoader)
+        self.assertEqual('', template['Parameters']['CloudApiClientSecurityGroupId']['Default'])
+        rule = template['Resources']['CloudApiClientSecurityGroupIngress']
+        self.assertEqual('HasCloudApiClientSecurityGroup', rule['Condition'])
+        props = rule['Properties']
+        self.assertEqual({'Ref': 'CloudApiClientSecurityGroupId'}, props['SourceSecurityGroupId'])
+        self.assertEqual({'Ref': 'ControlPlaneSecurityGroup'}, props['GroupId'])
+        self.assertEqual((443, 443, 'tcp'), (props['FromPort'], props['ToPort'], props['IpProtocol']))
+        self.assertNotIn('CidrIp', props)
+
+
 if __name__ == '__main__':
     unittest.main()

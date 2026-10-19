@@ -207,6 +207,11 @@ Parameters:
   BastionRole:
     Type: String
     Default: ""
+  CloudApiClientSecurityGroupId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^sg-[0-9a-f]+$'
+    Description: Optional existing security group in this VPC for Cloud to manage tenant namespaces through the private Kubernetes API.
   EKSPublicAccessCIDRs:
     Type: List<String>
     Default: 0.0.0.0/0
@@ -349,6 +354,7 @@ Mappings:
       Windows: WINDOWS_CORE_2019_x86_64
 
 Conditions:
+  HasCloudApiClientSecurityGroup: !Not [!Equals [!Ref CloudApiClientSecurityGroupId, '']]
   BastionRole: !Not [ !Equals [ !Ref BastionRole, "" ] ]
   UseKeyPair: !Not [ !Equals [ !Ref KeyPairName, "" ] ]
   EnablePublicSubnets: !Not [!Equals [!Ref PublicSubnet1ID, ""]]
@@ -1056,6 +1062,16 @@ Resources:
       GroupDescription: >-
         Security group for lambda to communicate with cluster API.
       VpcId: !Ref VPCID
+  CloudApiClientSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasCloudApiClientSecurityGroup
+    Properties:
+      Description: Allow the configured Cloud application security group to manage tenant namespaces.
+      GroupId: !Ref ControlPlaneSecurityGroup
+      SourceSecurityGroupId: !Ref CloudApiClientSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
   ClusterControlPlaneSecurityGroupIngress:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
